@@ -1,6 +1,6 @@
 var Cookiesmith = (function($g,$app){
   if(Cookiesmith!==undefined){
-    return CookieSmith;
+    return Cookiesmith;
   }
   var $o = $g.ObjectsById;
   var $u = $g.UpgradesById;
@@ -8,23 +8,44 @@ var Cookiesmith = (function($g,$app){
    * Interceptor
    */
   var Interceptor = $app.Interceptor = {};
-  Interceptor.origLoop = $g.Loop;
-  Interceptor.Exec = function(){
-    for(var k in Interceptor.bChain){
-      Interceptor.bChain[k]();
-    }    
-  }
-  Interceptor.Loop = function(){
-    Interceptor.origLoop.apply($g);
-    window.setTimeout(Interceptor.Exec,0);
+  Interceptor.orig = {
+    Loop: $g.Loop,
+    confirm: window.confirm,
   };
+  Interceptor.hook = {};
+  Interceptor.hook.Loop = function(){
+    Interceptor.orig.Loop.apply($g);
+    window.setTimeout(function(){
+      for(var k in Interceptor.loopHook){
+        Interceptor.loopHook[k]();
+      }
+    },0);
+  };
+  Interceptor.hook.confirm = function(){
+    var res = undefined;
+    for(var k in Interceptor.confirmHook){
+      var res0 = Interceptor.confirmHook[k].apply(window,arguments);
+      if(res0!==undefined){
+        res = res0;
+      }
+    }
+    if(res!==undefined){
+      return res;
+    } else {
+      return Interceptor.orig.confirm.apply(window,arguments);
+    }
+  };
+
   Interceptor.set = function(){
-    $g.Loop = this.Loop;
+    $g.Loop = this.hook.Loop;
+    window.confirm = this.hook.confirm;
   };
   Interceptor.remove = function(){
-    $g.Loop = this.origLoop;
+    $g.Loop = this.orig.Loop;
+    window.confirm = this.orig.confirm;
   };
-  Interceptor.bChain = {};
+  Interceptor.loopHook = {};
+  Interceptor.confirmHook = {};
 
   /*
    * Clicker
@@ -45,20 +66,23 @@ var Cookiesmith = (function($g,$app){
    */
   var GoldHunter = $app.GoldHunter = {};
   GoldHunter.hunt = function(){
-    if($g.goldenCookie.delay==0){
+    var self = GoldHunter;
+    if(!self.hunting && $g.goldenCookie.delay==0 && $g.goldenCookie.toDie!==1 && $g.goldenCookie.wrath!==1 ){
+      self.hunting = true;
       window.setTimeout(function(){
         $g.goldenCookie.click();
         console.log('got Golden Cookie!');
+        self.hunting = false;
       },1000);
     }
   };
   GoldHunter.start = function(){
-    var chain = Interceptor.bChain;
+    var chain = Interceptor.loopHook;
     if(chain.gh){return;}
     chain.gh = this.hunt;
   };
   GoldHunter.stop = function(){
-    delete Interceptor.bChain.gh;
+    delete Interceptor.loopHook.gh;
   };
 
   /*
@@ -82,10 +106,10 @@ var Cookiesmith = (function($g,$app){
   BasicBuyer.prototype.start = function(){
     var self = this;
     this.init();
-    Interceptor.bChain[this.interceptorKey] = function(){self.loop()};
+    Interceptor.loopHook[this.interceptorKey] = function(){self.loop()};
   };
   BasicBuyer.prototype.stop = function(){
-    delete Interceptor.bChain[this.interceptorKey];
+    delete Interceptor.loopHook[this.interceptorKey];
   };
   BasicBuyer.prototype.action = function(){
     this.nextTime = $g.T + this.interval;
@@ -136,7 +160,8 @@ var Cookiesmith = (function($g,$app){
     this.interval = 1000;
     this.interceptorKey = 'simpleBuyer';
     this.baseTime = 3600;
-    this.action = this.choose;    
+    this.action = this.choose;
+    //Interceptor.confirmHook.simpleBuyer = this.confirmHook;
   }
   SimpleBuyer.prototype.buy = function(){
     if(this.choice===undefined){ return };
@@ -170,7 +195,7 @@ var Cookiesmith = (function($g,$app){
       target.obj = $o[0];
     } else {
 
-      var ug = this.func.considerUpgrade();
+      var ug = this.considerUpgrade();
       if(ug!==undefined){
         target.ug = ug;
 
@@ -201,36 +226,54 @@ var Cookiesmith = (function($g,$app){
     }
 
   };
-  SimpleBuyer.prototype.func = Object.create(BasicBuyer.prototype.func);
-  SimpleBuyer.prototype.func.score = function(obj,baseTime){
-    var cpcps = obj.price / obj.cps();
-    var delay = obj.price > $g.cookies ? (obj.price-$g.cookies)/$g.cookiesPs : 0;
-
-    // 待ち時間のコストは指数関数で上がるようにしたみた。
-    return {
-      s: - ( cpcps * ( Math.pow(2,delay/30) ) ),
-      obj: obj,
-    };
-  }
-  SimpleBuyer.prototype.func.considerUpgrade = function(){
-    var maxPriceObj = this.maxBy( $o, function(o){ return o.bought>0 ? o.price : 0 } );
+  SimpleBuyer.prototype.considerUpgrade = function(){
+    var maxPriceObj = this.func.maxBy( $o, function(o){ return o.bought>0 ? o.price : 0 } );
     for(var i=0;i<$u.length;i++){
       var ug = $u[i];
       if(ug.bought===1 || ug.unlocked===0 ){ continue; }
 
-      // このへん適当なので何とかしたい
+      var policy = this.upgradePolicies[ug.name];
+      if( policy !== undefined ){
+        if(policy.name === 'ignore'){
+          continue;
+        }
+      }
+
       if(maxPriceObj.price < 800000){
         var r = 1.5;
       } else if(maxPriceObj.price < 1666666) {
+        var r = 1.2;
+      } else if(maxPriceObj.price < 500000000){
         var r = 1.0;
       } else {
-        var r = 1/1.5;
+        var r = 0.7;
       }
       if( ug.basePrice < maxPriceObj.price * r ){
         return ug;
       }
     }
     return undefined;
+  };
+  SimpleBuyer.prototype.upgradePolicies = {'One mind':{name:'ignore'}};
+
+  SimpleBuyer.prototype.confirmHook = function(message){
+    console.log(message);
+    if(message==="Warning : purchasing this will have unexpected, and potentially undesirable results!\nIt\'s all downhill from here. You have been warned!\nPurchase anyway?"){
+      return true;
+    } else {
+      return undefined;
+    }
+  };
+  SimpleBuyer.prototype.func = Object.create(BasicBuyer.prototype.func);
+  SimpleBuyer.prototype.func.score = function(obj,baseTime){
+    var cpcps = obj.price / obj.cps();
+    var delay = obj.price > $g.cookies ? (obj.price-$g.cookies)/$g.cookiesPs : 0;
+
+    // cost increases exponentially by delay
+    return {
+      s: - ( cpcps * ( Math.exp(delay/60) ) ),
+      obj: obj,
+    };
   }
   SimpleBuyer.prototype.func.status = function(){
     var stat = $g.cookiesPs;
@@ -243,6 +286,35 @@ var Cookiesmith = (function($g,$app){
   }
 
   var Buyer = $app.Buyer = new SimpleBuyer();
+
+  /*
+   * Cheater
+   */
+   var Cheater = $app.Cheater = {};
+  Cheater.getCookies = function(number){
+    $g.cookiesEarned += number;
+    $g.cookies += number;
+    console.log( 'got '+Beautify(number)+' cookies.' );
+  };
+  Cheater.showGold = function(){
+    $g.goldenCookie.delay = 10;
+  };
+  var gr_id = -1;
+  Cheater.goldRush = function(interval){
+    window.clearInterval(gr_id);
+    if(interval>0){
+      gr_id = window.setInterval( Cheater.showGold , 5000 );
+    }
+  };
+  Cheater.instantResearch = function(){
+    Interceptor.loopHook.instantResearch = function(){
+      if($g.researchT > 1) $g.researchT = 1;
+    };
+  };
+  Cheater.iAmNotACheater = function(){
+    $g.Achievements['Cheated cookies taste awful'].won = 0;
+  };
+
 
   /*
    * initializer
