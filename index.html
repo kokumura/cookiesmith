@@ -2,11 +2,20 @@
 <html>
 <head>
   <title>Cookiesmith</title>
+  <style>
+  a:link{ color: gray; text-decoration: none; }
+  a:link.bookmarklet{ color: green ; text-decoratin: underline; font-weight: bold; }
+  </style>
 </head>
 <body>
-  <a href="javascript:(function(){(function(d){var e=d.createElement('script');d.body.appendChild(e);e.src='https://rawgithub.com/kokumura/cookiesmith/0.5/cookiesmith.js?v=2';e.onload=function(){Cookiesmith.autoStart()};})(document)})();">
-    Cookiesmith
-  </a>
-  <p>Drag above link to your bookmark bar.</p>
+  <p>
+    <a class="bookmarklet" href="javascript:(function(){(function(d){var e=d.createElement('script');d.body.appendChild(e);e.src='https://rawgithub.com/kokumura/cookiesmith/0.5/cookiesmith.js';e.onload=function(){Cookiesmith.autoStart()};})(document)})();">Cookiesmith</a>
+  </p>
+  <ul>
+  <li>Drag above link to your bookmark bar.</li>
+  <li>Open Cookie Clicker page, click "Cookiesmith" bookmarklet.</li>
+  <li>To stop Cookiesmith, just save and reload the page.</li>
+  </ul>
+  <p><a href="https://github.com/kokumura/cookiesmith">source code</a></p>
 </body>
 </html>
