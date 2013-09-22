@@ -1,9 +1,74 @@
 var Cookiesmith = (function($g,$app){
   if(Cookiesmith!==undefined){
-    return Cookiesmith;
+    console.log('cookiesmith: reload');
+    Cookiesmith.remove();
   }
   var $o = $g.ObjectsById;
   var $u = $g.UpgradesById;
+
+  /*
+   * Utility
+   */
+  var Util = $app.Util = {};
+  Util.maxBy = function(objs,f){
+    var maxobj = objs[0];
+    var maxvalue = f(maxobj);
+    for(var i=1;i<objs.length;i++){
+      var val = f(objs[i]);
+      if (maxvalue < val){
+        maxobj = objs[i];
+        maxvalue = val;
+      }
+    }
+    return maxobj;
+  };
+  Util.minBy = function(objs,f){
+    var minobj = objs[0];
+    var minvalue = f(minobj);
+    for(var i=1;i<objs.length;i++){
+      var val = f(objs[i]);
+      if (val!==undefined){
+        if(minvalue===undefined || minvalue > val){
+          minobj = objs[i];
+          minvalue = val;
+        }
+      }
+    }
+    return minobj;
+  };
+  Util.map = function(objs,f){
+    var ret = new Array(objs.length);
+    for(var i=0;i<objs.length;i++){
+      ret[i] = f(objs[i]);
+    }
+    return ret;
+  };
+  Util.gameTime = function(date){
+    return (date||new Date()).getTime()-$g.startDate;
+  };
+  Util.pad0 = function(value,digit){
+    if( Math.log(value)/Math.log(10) < digit ){
+      return ( value * Math.pow(0.1,digit)).toString().substring(2,2+digit);
+    } else {
+      return Math.round(value.toString());
+    }
+  };
+  Util.formatDate = function(date){
+    var year = date.getYear()+1900;
+    var day = Util.pad0(date.getDate(),2);
+    var month = Util.pad0(date.getMonth()+1,2);
+    var hour = Util.pad0(date.getHours(),2);
+    var minute = Util.pad0(date.getMinutes(),2);
+    var second = Util.pad0(date.getSeconds(),2);
+    return year+'/'+month+'/'+day+' '+hour+':'+minute+':'+second;
+  };
+  Util.log = function(message){
+    var date = new Date();
+    var gameTime = Util.pad0(Math.round(Util.gameTime(date)/1000),6);
+    var formatDate = Util.formatDate(date);
+    console.log('['+formatDate+' '+gameTime+'] '+message);
+  };
+
   /*
    * Interceptor
    */
@@ -38,11 +103,11 @@ var Cookiesmith = (function($g,$app){
 
   Interceptor.set = function(){
     $g.Loop = this.hook.Loop;
-    window.confirm = this.hook.confirm;
+    //window.confirm = this.hook.confirm;
   };
   Interceptor.remove = function(){
     $g.Loop = this.orig.Loop;
-    window.confirm = this.orig.confirm;
+    //window.confirm = this.orig.confirm;
   };
   Interceptor.loopHook = {};
   Interceptor.confirmHook = {};
@@ -71,7 +136,7 @@ var Cookiesmith = (function($g,$app){
       self.hunting = true;
       window.setTimeout(function(){
         $g.goldenCookie.click();
-        console.log('got Golden Cookie!');
+        Util.log('got a Golden Cookie!');
         self.hunting = false;
       },1000);
     }
@@ -93,12 +158,26 @@ var Cookiesmith = (function($g,$app){
     this.interval = 1000;
     this.nextTime = 0;
     this.interceptorKey = 'basicBuyer';
+    this.last = {};
+    this.saveStatus();
   }
+  BasicBuyer.prototype.saveStatus = function(){
+    this.last.T = $g.T;
+    this.last.time = $g.time;
+    this.last.cookieClicks = $g.cookieClicks;
+  };
   BasicBuyer.prototype.loop = function(){
     if($g.time < this.nextTime) return;
+
+
+    var itv = $g.time-this.last.time;
+    var clicks = $g.cookieClicks - this.last.cookieClicks;
+    var clickCps = itv===0 ? 0 : $g.computedMouseCps * clicks / (itv/1000);
+    this.realCps = $g.cookiesPs + clickCps;
+
     this.action();
-    this.lastT = $g.T;
-    this.lastTime = $g.time;
+    
+    this.saveStatus();
     if(this.nextTime <= $g.T){
       this.nextTime += this.interval;
     }
@@ -114,41 +193,6 @@ var Cookiesmith = (function($g,$app){
   BasicBuyer.prototype.action = function(){
     this.nextTime = $g.T + this.interval;
   };
-  BasicBuyer.prototype.func = {};
-  BasicBuyer.prototype.func.maxBy = function(objs,f){
-    var maxobj = objs[0];
-    var maxvalue = f(maxobj);
-    for(var i=1;i<objs.length;i++){
-      var val = f(objs[i]);
-      if (maxvalue < val){
-        maxobj = objs[i];
-        maxvalue = val;
-      }
-    }
-    return maxobj;
-  };
-  BasicBuyer.prototype.func.minBy = function(objs,f){
-    var minobj = objs[0];
-    var minvalue = f(minobj);
-    for(var i=1;i<objs.length;i++){
-      var val = f(objs[i]);
-      if (val!==undefined){
-        if(minvalue===undefined || minvalue > val){
-          minobj = objs[i];
-          minvalue = val;
-        }
-      }
-    }
-    return minobj;
-  };
-  BasicBuyer.prototype.func.map = function(objs,f){
-    var ret = new Array(objs.length);
-    for(var i=0;i<objs.length;i++){
-      ret[i] = f(objs[i]);
-    }
-    return ret;
-  };
-
 
   /*
    * Simple Buyer extends Basic Buyer
@@ -157,16 +201,16 @@ var Cookiesmith = (function($g,$app){
   SimpleBuyer.prototype = Object.create(BasicBuyer.prototype);
   SimpleBuyer.prototype.constructor = SimpleBuyer();
   SimpleBuyer.prototype.init = function(){
+    BasicBuyer.prototype.init.apply(this); // super()
     this.interval = 1000;
     this.interceptorKey = 'simpleBuyer';
-    this.baseTime = 3600;
+    this.costParam = 60;
     this.action = this.choose;
-    //Interceptor.confirmHook.simpleBuyer = this.confirmHook;
   }
   SimpleBuyer.prototype.buy = function(){
     if(this.choice===undefined){ return };
     if(this.choice.lastStat !== this.choice.status()){
-      console.log('status changed. recalculate...');
+      Util.log('status changed. recalculate...');
       return this.choose();
     }
 
@@ -175,15 +219,16 @@ var Cookiesmith = (function($g,$app){
       if(obj.price > $g.cookies){ return; }
       this.choice = undefined;
       var price = obj.price;
+
       obj.buy();
-      console.log('bought '+obj.name+' at '+Beautify(price) );
+      Util.log('bought '+(obj.bought===1? 'the first ' : 'a ')+obj.name+' at '+Beautify(price) );
 
     } else if (this.choice.ug) {
       var ug = this.choice.ug;
       if(ug.basePrice > $g.cookies){ return; }
       this.choice = undefined;
       ug.buy();
-      console.log('bought '+ug.name+' at '+Beautify(ug.basePrice) );
+      Util.log('bought '+ug.name+' at '+Beautify(ug.basePrice) );
 
     }
     this.action = this.choose;
@@ -191,7 +236,7 @@ var Cookiesmith = (function($g,$app){
 
   SimpleBuyer.prototype.choose = function(){
     var target = {};
-    if($g.cookiesPs<0.1){
+    if($g.coookiesPs<0.1){
       target.obj = $o[0];
     } else {
 
@@ -202,32 +247,32 @@ var Cookiesmith = (function($g,$app){
       } else {
         var scores = [];
         for(var i=0;i<$o.length;i++){
-          scores.push( this.func.score($o[i],this.baseTime) );
+          scores.push( this.score($o[i],this.baseTime) );
         }
-        var maxs = this.func.maxBy( scores, function(s){return s.s} );
-        //console.log( this.func.map( scores, function(o){ return o.obj.price/o.obj.cps() } ) );
-        target.obj = maxs.obj;        
+        var maxs = Util.maxBy( scores, function(s){return s.s} );
+        //console.log( Util.map( scores, function(o){ return o.obj.price/o.obj.cps() } ) );
+        target.obj = maxs.obj;
       }
     }
 
-    target.status = this.func.status;
+    target.status = this.status;
     target.lastStat = target.status();
     this.choice = target;
     this.action = this.buy;
 
     if(target.obj){
-      var delay = target.obj.price<$g.cookies ? 0 : (target.obj.price-$g.cookies)/$g.cookiesPs;
-      console.log('plan to buy '+target.obj.name+' at '+Beautify(target.obj.price)+' within '+Math.round(delay)+' seconds' );
+      var delay = target.obj.price<$g.cookies ? 0 : (target.obj.price-$g.cookies)/this.realCps;
+      Util.log('plan to buy a '+target.obj.name+' at '+Beautify(target.obj.price)+' within '+Math.round(delay)+' seconds' );
 
     } else if (target.ug){
-      var delay = target.ug.basePrice<$g.cookies ? 0 : (target.ug.basePrice-$g.cookies)/$g.cookiesPs;
-      console.log('plan to buy '+target.ug.name+' at '+Beautify(target.ug.basePrice)+' within '+Math.round(delay)+' seconds' );
+      var delay = target.ug.basePrice<$g.cookies ? 0 : (target.ug.basePrice-$g.cookies)/this.realCps;
+      Util.log('plan to buy the '+target.ug.name+' at '+Beautify(target.ug.basePrice)+' within '+Math.round(delay)+' seconds' );
 
     }
 
   };
   SimpleBuyer.prototype.considerUpgrade = function(){
-    var maxPriceObj = this.func.maxBy( $o, function(o){ return o.bought>0 ? o.price : 0 } );
+    var maxPriceObj = Util.maxBy( $o, function(o){ return o.bought>0 ? o.price : 0 } );
     for(var i=0;i<$u.length;i++){
       var ug = $u[i];
       if(ug.bought===1 || ug.unlocked===0 ){ continue; }
@@ -240,14 +285,15 @@ var Cookiesmith = (function($g,$app){
       }
 
       if(maxPriceObj.price < 800000){
-        var r = 1.5;
+        var r = 1.3;
       } else if(maxPriceObj.price < 1666666) {
-        var r = 1.2;
+        var r = 1.1;
       } else if(maxPriceObj.price < 500000000){
-        var r = 1.0;
+        var r = 0.8;
       } else {
-        var r = 0.7;
+        var r = 0.6;
       }
+
       if( ug.basePrice < maxPriceObj.price * r ){
         return ug;
       }
@@ -255,33 +301,20 @@ var Cookiesmith = (function($g,$app){
     return undefined;
   };
   SimpleBuyer.prototype.upgradePolicies = {'One mind':{name:'ignore'}};
-
-  SimpleBuyer.prototype.confirmHook = function(message){
-    console.log(message);
-    if(message==="Warning : purchasing this will have unexpected, and potentially undesirable results!\nIt\'s all downhill from here. You have been warned!\nPurchase anyway?"){
-      return true;
-    } else {
-      return undefined;
-    }
-  };
-  SimpleBuyer.prototype.func = Object.create(BasicBuyer.prototype.func);
-  SimpleBuyer.prototype.func.score = function(obj,baseTime){
+  SimpleBuyer.prototype.score = function(obj){
     var cpcps = obj.price / obj.cps();
-    var delay = obj.price > $g.cookies ? (obj.price-$g.cookies)/$g.cookiesPs : 0;
+    var delay = obj.price > $g.cookies ? (obj.price-$g.cookies)/this.realCps : 0;
 
-    // cost increases exponentially by delay
     return {
-      s: - ( cpcps * ( Math.exp(delay/60) ) ),
+      s: - this.cost(cpcps,delay),
       obj: obj,
     };
   }
-  SimpleBuyer.prototype.func.status = function(){
+  SimpleBuyer.prototype.cost = function(cpcps,delay){
+    return cpcps * (1+Math.pow(delay/this.costParam,2));
+  };
+  SimpleBuyer.prototype.status = function(){
     var stat = $g.cookiesPs;
-    /*
-    for(var i=0;i<$o.length;i++){
-      stat = stat * 2 + ( $o[i].price > $g.cookies ? 0 : 1 );
-    }
-    */
     return stat;
   }
 
@@ -294,7 +327,7 @@ var Cookiesmith = (function($g,$app){
   Cheater.getCookies = function(number){
     $g.cookiesEarned += number;
     $g.cookies += number;
-    console.log( 'got '+Beautify(number)+' cookies.' );
+    Util.log( 'got '+Beautify(number)+' cookies.' );
   };
   Cheater.showGold = function(){
     $g.goldenCookie.delay = 10;
@@ -303,7 +336,7 @@ var Cookiesmith = (function($g,$app){
   Cheater.goldRush = function(interval){
     window.clearInterval(gr_id);
     if(interval>0){
-      gr_id = window.setInterval( Cheater.showGold , 5000 );
+      gr_id = window.setInterval( Cheater.showGold , interval );
     }
   };
   Cheater.instantResearch = function(){
@@ -322,6 +355,7 @@ var Cookiesmith = (function($g,$app){
   var initialized = false;
   $app.init = function(){
     if(initialized) return $app;
+    console.log('cookiesmith: initialize');
     Interceptor.set();
     initialized = true;
     return $app;
@@ -330,11 +364,19 @@ var Cookiesmith = (function($g,$app){
   $app.autoStart = function(){
     if(started) return $app;
     $app.init();
-    $app.Clicker.start();
-    $app.GoldHunter.start();
-    $app.Buyer.start();
+    Clicker.start();
+    GoldHunter.start();
+    Buyer.start();
     started = true;
     return $app;
+  };
+  $app.remove = function(){
+    if(initialized){
+      Interceptor.remove();
+    }
+    if(started){
+      Clicker.stop();
+    }
   };
   return $app;
 })(window.Game,{});
