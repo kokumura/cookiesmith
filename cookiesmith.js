@@ -1,12 +1,15 @@
 var Cookiesmith = (function($g,$app){
   if(Cookiesmith!==undefined){
     console.log('cookiesmith: reload');
+    Cookiesmith.Util.popup('reload');
     Cookiesmith.remove();
   }
   var $o = $g.ObjectsById;
   var $O = $g.Objects;
   var $u = $g.UpgradesById;
   var $U = $g.Upgrades;
+
+  $app.opt = { popup:true, clickInterval:50, };
 
   /*
    * Utility
@@ -72,6 +75,26 @@ var Cookiesmith = (function($g,$app){
     var formatDate = Util.formatDate(date);
     console.log('['+formatDate+' '+gameTime+'] '+message);
   };
+  Util.popup = function(message){
+    if($app.opt.popup)
+      $g.Popup('[Csmith] '+message);
+  };
+  Util.ordNum = function(num){
+    switch(num%100){
+      case 1: return 'first';
+      case 2: return 'second';
+      case 3: return 'third';
+      case 11: return '11th';
+      case 12: return '12th';
+      default:
+      switch(num%10){
+        case 1: return num+'st';
+        case 2: return num+'nd';
+        case 3: return num+'rd';
+        default: return num+'th';
+      }
+    }
+  };
 
   /*
    * Interceptor
@@ -122,7 +145,7 @@ var Cookiesmith = (function($g,$app){
   var Clicker = $app.Clicker = {};
   Clicker.start = function(itv){
     if(this.id!==undefined){this.stop();}
-    this.id = window.setInterval($g.ClickCookie,itv||50);
+    this.id = window.setInterval($g.ClickCookie,itv||$app.opt.clickInterval||50);
   };
   Clicker.stop = function(){
     if(this.id===undefined){return;}
@@ -140,7 +163,8 @@ var Cookiesmith = (function($g,$app){
       self.hunting = true;
       window.setTimeout(function(){
         $g.goldenCookie.click();
-        Util.log('got a Golden Cookie!');
+        Util.log('got the '+Util.ordNum($g.goldenClicks)+' Golden Cookie!');
+        Util.popup('got the '+Util.ordNum($g.goldenClicks)+' Golden Cookie!');
         self.hunting = false;
       },1000);
     }
@@ -213,9 +237,9 @@ var Cookiesmith = (function($g,$app){
     this.interval = 1000;
     this.interceptorKey = 'simpleBuyer';
     this.param = {
-      costDenom: 60,
-      luckyCookiesThreshold: 90,
-      upgradeDefaultThreshold: 60,
+      costDenom: $app.opt.costDenom || 60,
+      luckyCookiesThreshold: $app.opt.luckyCookiesTime || 90,
+      upgradeDefaultThreshold: $app.opt.upgradeDefaultTime || 60,
     };
     this.policiesForUpgrade = this.getPoliciesForUpgrade();
     this.action = this.choose;
@@ -223,7 +247,8 @@ var Cookiesmith = (function($g,$app){
   SimpleBuyer.prototype.buy = function(){
     if(this.choice===undefined){ return };
     if(this.choice.lastStat !== this.choice.status()){
-      Util.log('status changed. recalculate...');
+      Util.log('Cps changed. retry planning.');
+      Util.popup('Cps changed. retry planning.');
       return this.choose();
     }
 
@@ -235,6 +260,7 @@ var Cookiesmith = (function($g,$app){
 
       obj.buy();
       Util.log('bought '+(obj.bought===1? 'the first ' : 'a ')+obj.name+' at '+Beautify(price) );
+      Util.popup('bought '+(obj.bought===1? 'the first ' : 'a ')+obj.name);
 
     } else if (this.choice.type==='ug') {
       var ug = this.choice.ug;
@@ -242,6 +268,7 @@ var Cookiesmith = (function($g,$app){
       this.choice = undefined;
       ug.buy();
       Util.log('bought '+ug.name+' at '+Beautify(ug.basePrice) );
+      Util.popup('bought '+ug.name );
 
     }
     this.action = this.choose;
@@ -271,7 +298,8 @@ var Cookiesmith = (function($g,$app){
       if(delay===0){
         return this.buy();
       } else {
-        Util.log('plan to buy a '+target.obj.name+' at '+Beautify(target.obj.price)+' after '+delay+' seconds' );
+        Util.log('plan to buy '+(target.obj.bought===1? 'the first ' : 'a ')+target.obj.name+' at '+Beautify(target.obj.price)+' after '+delay+' seconds' );
+        Util.popup('Next: '+target.obj.name+' ('+delay+' sec.)');
       }
 
     } else if (target.type==='ug'){
@@ -280,6 +308,7 @@ var Cookiesmith = (function($g,$app){
         return this.buy();
       } else {
         Util.log('plan to buy the '+target.ug.name+' at '+Beautify(target.ug.basePrice)+' after '+delay+' seconds' );
+        Util.popup('Next: '+target.ug.name+' ('+delay+' sec.)' );
       }
     }
 
@@ -598,22 +627,24 @@ var Cookiesmith = (function($g,$app){
    * initializer
    */
   var initialized = false;
-  $app.init = function(){
+  $app.init = function(opt){
     if(initialized) return $app;
     console.log('cookiesmith: initialize');
+    for(var key in opt) $app.opt[key] = opt[key];
     Interceptor.set();
     initialized = true;
     return $app;
   };
   var started = false;
-  $app.autoStart = function(){
+  $app.autoStart = function(opt){
     if(started) return $app;
-    $app.init();
+    $app.init(opt);
     Clicker.start();
     GoldHunter.start();
     Buyer.start();
     started = true;
     Util.log('operation started');
+    Util.popup('started');
     return $app;
   };
   $app.remove = function(){
