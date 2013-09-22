@@ -173,7 +173,6 @@ var Cookiesmith = (function($g,$app){
   BasicBuyer.prototype.loop = function(){
     if($g.time < this.nextTime) return;
 
-
     var itv = $g.time-this.last.time;
     var clicks = $g.cookieClicks - this.last.cookieClicks;
     var clickCps = itv===0 ? 0 : $g.computedMouseCps * clicks / (itv/1000);

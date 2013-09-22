@@ -3,4 +3,4 @@ cookiesmith
 
 Cookie Clicker Automater
 
-see: [Bookmarklet Page](http://kokumura.github.io/cookiesmith/index.html)
+see: [Bookmarklet Page](http://kokumura.github.io/cookiesmith/)
