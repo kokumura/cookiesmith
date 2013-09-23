@@ -1,24 +1,37 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Cookiesmith: A Cookie Clicker Automater</title>
+  <title>Cookiesmith: A Cookie Clicker Automator</title>
   <style>
   a:link{ color: gray; }
-  a:link.bookmarklet{ color: green ; font-weight: bold; }
+  a:link#bookmarklet{ color: green ; font-weight: bold; font-size:200%; }
   </style>
 </head>
 <body>
-  <p>
-    <a class="bookmarklet" href="javascript:(function(){(function(d){var e=d.createElement('script');d.body.appendChild(e);e.src='https://rawgithub.com/kokumura/cookiesmith/0.7/cookiesmith.js';e.onload=function(){Cookiesmith.autoStart()};})(document)})();">
-      Cookiesmith
-    </a>: A Cookie Clicker Automater
-  </p>
+  <h1>Cookiesmith: A Cookie Clicker Automator</h1>
+
+  <p><a id="bookmarklet" href="javascript:(function(){(function(d){var e=d.createElement('script');d.body.appendChild(e);e.src='https://rawgithub.com/kokumura/cookiesmith/0.72/cookiesmith.js';e.onload=function(){Cookiesmith.autoStart()};})(document)})();">Cookiesmith</a></p>
+  <small>Drag this link to your bookmark bar.</small>
+
+  <h2>Usage</h2>
   <ul>
   <li>Drag above link to your bookmark bar.</li>
   <li>Open Cookie Clicker page, click "Cookiesmith" bookmarklet.</li>
   <li>To stop Cookiesmith, just save and reload the page.</li>
   </ul>
-  <p>current version: 0.7 (updated at 2013/9/23)</p>
+
+  <h2>Features</h2>
+  <p>Cookiesmith does:</p>
+  <ul>
+    <li>Click the Big Cookie rapidly. (20 clicks per second)</li>
+    <li>Click Golden Cookies when they appear.</li>
+    <li>Buy new Building and Upgrades automatically. (excluding "One mind")</li>
+    <li>Never cheat.</li>
+  </ul>
+
+
+  <h2>Misc.</h2>
+  <p>current version: 0.72 (updated at 2013/9/23)</p>
   <p><a href="https://github.com/kokumura/cookiesmith">source code</a></p>
 </body>
 </html>
