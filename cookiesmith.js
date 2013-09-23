@@ -16,11 +16,10 @@ var Cookiesmith = (function($g,$app){
    */
   var Util = $app.Util = {};
   Util.maxBy = function(objs,f){
-    var maxobj = objs[0];
-    var maxvalue = f(maxobj);
-    for(var i=1;i<objs.length;i++){
-      var val = f(objs[i]);
-      if (maxvalue < val){
+    var maxobj,maxvalue;
+    for(var i=0;i<objs.length;i++){
+      var val = f===undefined ? objs[i] : f(objs[i]);
+      if (maxvalue===undefined || maxvalue < val){
         maxobj = objs[i];
         maxvalue = val;
       }
@@ -28,18 +27,23 @@ var Cookiesmith = (function($g,$app){
     return maxobj;
   };
   Util.minBy = function(objs,f){
-    var minobj = objs[0];
-    var minvalue = f(minobj);
-    for(var i=1;i<objs.length;i++){
-      var val = f(objs[i]);
-      if (val!==undefined){
-        if(minvalue===undefined || minvalue > val){
-          minobj = objs[i];
-          minvalue = val;
-        }
+    var minobj,minvalue;
+    for(var i=0;i<objs.length;i++){
+      var val = f===undefined ? objs[i] : f(objs[i]);
+      if(minvalue===undefined || minvalue > val){
+        minobj = objs[i];
+        minvalue = val;
       }
     }
     return minobj;
+  };
+  Util.sumBy = function(objs,f){
+    var sum = 0;
+    for(var i=0;i<objs.length;i++){
+      var val = f===undefined ? objs[i] : f(objs[i]);
+      if (val!==undefined) sum += val;
+    }
+    return sum;
   };
   Util.map = function(objs,f){
     var ret = new Array(objs.length);
@@ -48,6 +52,18 @@ var Cookiesmith = (function($g,$app){
     }
     return ret;
   };
+  Util.forEach = function(objs,f){
+    for(var i=0;i<objs.length;i++) f(objs[i]);
+  };
+  Util.median = function(values){
+    var list = values.sort();
+    if(list.length%2===0){
+      return (list[list.length/2-1]+list[list.length/2])/2;
+    } else {
+      return list[Math.floor(list.length)];
+    }
+  }
+
   Util.gameTime = function(date){
     return (date||new Date()).getTime()-$g.startDate;
   };
@@ -60,6 +76,10 @@ var Cookiesmith = (function($g,$app){
       return Math.round(value.toString());
     }
   };
+  Util.round = function(value,digit){
+    if(digit===undefined) digit = 1;
+    return (Math.round(value*Math.pow(10,digit))/Math.pow(10,digit));
+  }
   Util.formatDate = function(date){
     var year = date.getYear()+1900;
     var day = Util.pad0(date.getDate(),2);
@@ -98,6 +118,9 @@ var Cookiesmith = (function($g,$app){
         }
       }
     }
+  };
+  Util.delay = function(price,cps){
+    return price>$g.cookies ? (price-$g.cookies)/cps : 0;
   };
 
   /*
@@ -210,6 +233,17 @@ var Cookiesmith = (function($g,$app){
 
     this.action();
 
+    /*
+    console.debug(
+      (Util.gameTime()/1000)+', '
+      +this.realCps+', '
+      +this.context.cpsPs+', '
+      +(this.context.cpsPs/(Util.gameTime()/1000))+', '
+      +(this.context.cpsPs/Math.pow(Util.gameTime()/1000,2)*1000000)+', '
+      +(this.context.cpsPs/Math.pow(Util.gameTime()/1000,3)*1000000000)+', '
+      );
+  */
+
     if (this.last.time+this.interval < $g.time){
       this.saveStatus();
     }
@@ -239,13 +273,34 @@ var Cookiesmith = (function($g,$app){
   SimpleBuyer.prototype.init = function(){
     BasicBuyer.prototype.init.apply(this); // super()
     this.interval = 1000;
-    this.interceptorKey = 'simpleBuyer';
+    this.costs = {
+      cpsPsConst: function(context,price,cps,delay){
+        return context.cpsPs*delay - cps;
+      },
+      cpsPsLinear: function(context,price,cps,delay){
+        return context.cpsPs*delay*delay/4 - cps;
+      },
+      cpsPsSquare: function(ctx,price,cps,delay){
+        var t0 = Util.gameTime()/1000;
+        var t1 = t0 + delay;
+        var a = ctx.cpsPs / Math.pow(t0,2);
+        var dcps = a/3 * (Math.pow(t1,3) - Math.pow(t0,3));
+        return dcps - cps;
+      },
+      cpsPsCube: function(ctx,price,cps,delay){
+        var t0 = Util.gameTime()/1000;
+        var t1 = t0 + delay;
+        var a = ctx.cpsPs / Math.pow(t0,3);
+        var dcps = a/4 * (Math.pow(t1,4) - Math.pow(t0,4));
+        return dcps - cps;
+      },
+    };
     this.param = {
       costDenom: $app.opt.costDenom || 60,
       luckyCookiesThreshold: $app.opt.luckyCookiesTime || 90,
       upgradeDefaultThreshold: $app.opt.upgradeDefaultTime || 60,
+      cost: $app.opt.costFunc || this.costs.cpsPsCube,
     };
-    this.policiesForUpgrade = this.getPoliciesForUpgrade();
     this.action = this.choose;
   }
   SimpleBuyer.prototype.buy = function(){
@@ -267,7 +322,7 @@ var Cookiesmith = (function($g,$app){
       Util.popup('bought '+(obj.bought===1? 'the first ' : 'a ')+obj.name);
 
     } else if (this.choice.type==='ug') {
-      var ug = this.choice.ug;
+      var ug = this.choice.obj;
       if(ug.basePrice > $g.cookies){ return; }
       this.choice = undefined;
       ug.buy();
@@ -286,10 +341,24 @@ var Cookiesmith = (function($g,$app){
         s: 0,
       }
     } else {
-      var scores = [];
-      this.getScoresForUpgrade(scores);
-      this.getScoresForObjects(scores);
-      target = Util.maxBy( scores, function(s){return s.s} );
+      var context = {
+        scores:[],
+        cpsForUpgrade:{},
+        cpsPs: this.cpsPs,
+        param: this.param,
+        realCps: this.realCps,
+        clicksPs: this.clicksPs,
+        clickCps: this.clickCps,
+        cost: this.param.cost,
+      };
+      this.calcCpsPs(context);
+      this.calcScoresForUpgrade(context);
+      this.calcScoresForObjects(context);
+      this.context = context;
+
+      //Util.forEach( scores, function(s){console.debug( s.obj.name + ': '+ s.s );} );
+
+      target = Util.maxBy( context.scores, function(s){return s.s} );
     }
 
     target.status = this.status;
@@ -302,128 +371,148 @@ var Cookiesmith = (function($g,$app){
       if(delay===0){
         return this.buy();
       } else {
-        Util.log('plan to buy '+(target.obj.bought===1? 'the first ' : 'a ')+target.obj.name+' at '+Beautify(target.obj.price)+' after '+delay+' seconds' );
+        Util.log('plan to buy '+(target.obj.bought===0? 'the first ' : 'a ')+target.obj.name+' at '+Beautify(target.obj.price)+' after '+delay+' seconds' );
         Util.popup('Next: '+target.obj.name+' ('+delay+' sec.)');
       }
 
     } else if (target.type==='ug'){
-      var delay = target.ug.basePrice<$g.cookies ? 0 : Math.ceil((target.ug.basePrice-$g.cookies)/this.realCps);
+      var delay = target.obj.basePrice<$g.cookies ? 0 : Math.ceil((target.obj.basePrice-$g.cookies)/this.realCps);
       if(delay===0){
         return this.buy();
       } else {
-        Util.log('plan to buy the '+target.ug.name+' at '+Beautify(target.ug.basePrice)+' after '+delay+' seconds' );
-        Util.popup('Next: '+target.ug.name+' ('+delay+' sec.)' );
+        Util.log('plan to buy the '+target.obj.name+' at '+Beautify(target.obj.basePrice)+' after '+delay+' seconds' );
+        Util.popup('Next: '+target.obj.name+' ('+delay+' sec.)' );
       }
     }
 
   };
-  SimpleBuyer.prototype.getScoresForObjects = function(scores){
-    scores = scores || [];
+  SimpleBuyer.prototype.calcCpsPs = function(context){
+    var cpss = [];
     for(var i=0;i<$o.length;i++){
-      var score = this.scoreForObject($o[i]);
-      if(score!==undefined)
-        scores.push( { type:'obj', s: score, obj: $o[i] } );
+      cpss.push( $o[i].storedCps / ($o[i].price/context.realCps) );
     }
-    return scores;
-  };
-  SimpleBuyer.prototype.getScoresForUpgrade = function(scores){
-    scores = scores||[];
     for(var i=0;i<$u.length;i++){
       var ug = $u[i];
-      if(ug.bought===1 || ug.unlocked===0 ){ continue; }
-
-      var policy = this.policiesForUpgrade[ug.name];
-
-      if (policy===null){
-        continue;
-      } else if( typeof policy !== 'function'){
-        policy = this.upgradePolicies.Default;
+      if(ug.bought===1 || ug.unlocked===0 ) continue;
+      var policy = this.getPolicyForUpgrade(ug.name);
+      if (policy.p==='cps') {
+        cpss.push( policy.cps(context,ug) / (ug.basePrice/context.realCps) );
       }
-
-      var score = policy(ug);
-      if(score!==null)
-          scores.push({ type:'ug', s: score, ug: ug, });
     }
-    return scores;
+    context.cpsPs = Util.sumBy(cpss)/cpss.length;
+    return context;
   };
-  SimpleBuyer.prototype.getPoliciesForUpgrade = function(){
-    var buyer = this;
-    function ugDelay(ug){
-      return ug.basePrice > $g.cookies ? (ug.basePrice-$g.cookies)/buyer.realCps : 0;
+  SimpleBuyer.prototype.calcScoresForObjects = function(context){
+    var scores = context.scores;
+    for(var i=0;i<$o.length;i++){
+      var obj = $o[i];
+      var cpcps = obj.price / obj.storedCps;
+      var delay = Util.delay(obj.price,this.realCps);
+      var cost = context.cost(context,obj.price,obj.storedCps,delay);
+      if(cost!==undefined)
+        scores.push( { type:'obj', s: -cost, obj: obj } );
     }
+    return context;
+  };
+  SimpleBuyer.prototype.calcScoresForUpgrade = function(context){
+    var scores = context.scores;
+    for(var i=0;i<$u.length;i++){
+      var ug = $u[i];
+      if(ug.bought===1 || ug.unlocked===0 ) continue;
+
+      var policy = this.getPolicyForUpgrade(ug.name);
+
+      switch(policy.p){
+        case 'cps':
+        var cps = policy.cps(context,ug);
+        var cpcps = ug.basePrice / cps;
+        var delay = Util.delay(ug.basePrice,this.realCps);
+        var cost = context.cost(context,ug.basePrice,cps,delay);
+        scores.push({ type:'ug', s: -cost , obj: ug, });
+        break;
+
+        case 'delay':
+        if( Util.delay(ug.basePrice,this.realCps) <= policy.delay(context,ug) ){
+          scores.push({type:'ug', s: Infinity, ug:ug, });
+        }
+        break;
+
+        case 'ignore':
+        default:
+      }
+    }
+    return context;
+  };
+  SimpleBuyer.prototype.getPolicyForUpgrade = function(name){
+    var policy = this.ugPolicyTable[name];
+    if(policy===undefined)
+      return this.ugPolicyTable.Default;
+    else
+      return policy;
+  };
+  SimpleBuyer.prototype.ugPolicyTable = (function(){
     function gainGlobalCpsMult(rate){
-      return function(ug){
-        var cpcps =  ug.basePrice / ($g.cookiesPs/$g.globalCpsMult*rate);
-        return -buyer.cost(cpcps,ugDelay(ug));
-      };
+      return cpsPolicy(function(ctx,ug){
+        return $g.cookiesPs/$g.globalCpsMult*rate;
+      });
     }
     function gainBase(objName,base){
       var obj = $O[objName];
-      return function(ug){
-        if(obj.amount===0) return null;
-        var cpcps = ug.basePrice / (base * obj.amount);
-        return -buyer.cost(cpcps,ugDelay(ug));
-      };
+      return cpsPolicy(function(ctx,ug){
+        return base * obj.amount;
+      });
     }
     function gainRate(objName,rate){
       var obj = $O[objName];
-      return function(ug){
-        if(obj.amount===0) return null;
-        var cpcps = ug.basePrice / (obj.storedCps * obj.amount * (rate-1));
-        return -buyer.cost(cpcps,ugDelay(ug));
-      };
+      return cpsPolicy(function(ctx,ug){
+        return obj.storedCps * obj.amount * (rate-1);
+      });
     };
     function twice(objName){
       return gainRate(objName,2);
     }
     function gainMouseAndCursorBase(mouseBase,cursorBase){
-      return function(ug){
-        var cps = (mouseBase * buyer.clicksPs) + (cursorBase * $o[0].amount);
-        var cpcps = ug.basePrice / cps;
-        return -buyer.cost(cpcps,ugDelay(ug));
-      };
+      return cpsPolicy(function(ctx,ug){
+        return (mouseBase * ctx.clicksPs) + (cursorBase * $o[0].amount);
+      });
     }
     function twiceMouseAndCursor(){
-      return function(ug){
-        var cps = $o[0].storedCps + buyer.clickCps;
-        var cpcps = ug.basePrice / cps;
-        return -buyer.cost(cpcps,ugDelay(ug));
-      };
+      return cpsPolicy(function(ctx,ug){
+        return $o[0].storedCps + ctx.clickCps;
+      });
     }
     function gainMouseAndCursorByNonCursor(base){
-      return function(ug){
+      return cpsPolicy(function(ctx,ug){
         var amount = 0;
         for(var i=1;i<$o.length;i++){
           amount += $o[i].amount;
         }
-        var cpcps = ug.basePrice / ( base * (amount + buyer.clicksPs));
-        return -buyer.cost(cpcps,ugDelay(ug));
-      };
+        return base * (amount + ctx.clicksPs);
+      });
     }
     function gainClickByCps(rate){
-      return function(ug){
-        var cpcps = ug.basePrice / ($g.cookiesPs * rate * buyer.clicksPs);
-        return -buyer.cost(cpcps,ugDelay(ug));
-      };
+      return cpsPolicy(function(ctx,ug){
+        return $g.cookiesPs * rate * ctx.clicksPs;
+      });
     }
     function kitten(rate){
-      return function(ug){
-        var cpcps = ug.basePrice / ($g.cookiesPs * ($g.milkProgress*rate));
-        return -buyer.cost(cpcps,ugDelay(ug));
-      };
+      return cpsPolicy(function(ctx,ug){
+        return $g.cookiesPs * ($g.milkProgress*rate);
+      });
     }
-    function delayLessThan(threshold){
-      return function(ug){
-        return ugDelay(ug)>threshold ? null : 0;
-      };
+    var LuckyTwice = delayPolicy(function(ctx,ug){
+      ctx.param.luckyCookiesThreshold
+    });
+    var Default = delayPolicy(function(ctx,ug){
+      ctx.param.upgradeDefaultThreshold;
+    });
+    function cpsPolicy(f){
+      return { p:'cps', cps:f };
     }
-
-    var LuckyTwice = delayLessThan( buyer.param.luckyCookiesThreshold );
-
-    var BuySoon = function(){return Infinity}
-    var Default = delayLessThan( buyer.param.upgradeDefaultThreshold );
-    var Ignore = null;
-
+    function delayPolicy(f){
+      return { p:'delay', delay:f };
+    }
+    var Ignore = { p:'ignore' };
     return {
       // used when no policies matched
       Default: Default,
@@ -578,20 +667,64 @@ var Cookiesmith = (function($g,$app){
       'Gold hoard': Ignore,
       'Neuromancy': Ignore,
     };
-  };
-  SimpleBuyer.prototype.scoreForObject = function(obj){
-    var cpcps = obj.price / obj.storedCps;
-    var delay = obj.price > $g.cookies ? (obj.price-$g.cookies)/this.realCps : 0;
-    return - this.cost(cpcps,delay);
-  }
-  SimpleBuyer.prototype.cost = function(cpcps,delay){
-    return cpcps * (1+Math.pow(delay/this.param.costDenom,2));
-  };
+  })();
   SimpleBuyer.prototype.status = function(){
     var stat = $g.cookiesPs;
     return stat;
   }
 
+  // for debugging ...
+  SimpleBuyer.prototype.costFor = function(name){
+    var obj = $O[name] || $U[name];
+    var ctx = this.context;
+    if(obj.price!==undefined){
+      var price = obj.price;
+      var cps = obj.storedCps;
+
+    } else {
+      var price = obj.basePrice;
+      var policy = this.getPolicyForUpgrade(obj.name);
+      var cps = policy.cps(ctx,obj)
+    }
+    return {
+      name: name,
+      price: price,
+      cps: cps,
+      cost: ctx.cost(ctx,price,cps,Util.delay(price,ctx.realCps)),
+      delay: Util.delay(price,ctx.realCps),
+    };
+  }
+  SimpleBuyer.prototype.showCosts = function(){
+    var ctx = this.context;
+    function show(c){
+      console.debug(
+        c.name,
+        'total:'+Util.round(c.cost),
+        'cpsGain:'+Util.round(c.cps),
+        'squareCost:'+Util.round(c.delay*c.delay*ctx.cpsPs/4),
+        'delay:'+Util.round(c.delay)
+        );
+    }
+    var list = [];
+    for(var i=0;i<$o.length;i++){
+      list.push( this.costFor($o[i].name) );
+    }
+    for(var i=0;i<$u.length;i++){
+      var ud = $u[i];
+      if(ud.bought!==0 || ud.unlocked===0) continue;
+      var policy = this.getPolicyForUpgrade(ud.name);
+      if(policy.p!=='cps') continue;
+      list.push( this.costFor(ud.name) );
+    }
+    var list = list.sort( function(a,b){ return a.cost==b.cost? 0 : a.cost>b.cost ? -1 : 1; } );
+    Util.forEach( list,
+      function(c){
+        show(c);
+      });
+    console.debug('cpsPs: '+ctx.cpsPs);
+  }
+
+  // set default Buyer
   var Buyer = $app.Buyer = new SimpleBuyer();
 
   /*
