@@ -9,7 +9,7 @@ var Cookiesmith = (function($g,$app){
   var $u = $g.UpgradesById;
   var $U = $g.Upgrades;
 
-  $app.opt = { popup:true, clickInterval:50, };
+  $app.opt = { popup:true, clickPs:20, clicker:true, goldHunter:true, buyer:true, };
 
   /*
    * Utility
@@ -80,18 +80,22 @@ var Cookiesmith = (function($g,$app){
       $g.Popup('[Csmith] '+message);
   };
   Util.ordNum = function(num){
-    switch(num%100){
+    switch(num){
       case 1: return 'first';
       case 2: return 'second';
       case 3: return 'third';
-      case 11: return '11th';
-      case 12: return '12th';
       default:
-      switch(num%10){
-        case 1: return num+'st';
-        case 2: return num+'nd';
-        case 3: return num+'rd';
-        default: return num+'th';
+      switch(num%100){
+        case 11: 
+        case 12: 
+        case 13: return num+'th';
+        default:
+        switch(num%10){
+          case 1: return num+'st';
+          case 2: return num+'nd';
+          case 3: return num+'rd';
+          default: return num+'th';
+        }
       }
     }
   };
@@ -145,7 +149,7 @@ var Cookiesmith = (function($g,$app){
   var Clicker = $app.Clicker = {};
   Clicker.start = function(itv){
     if(this.id!==undefined){this.stop();}
-    this.id = window.setInterval($g.ClickCookie,itv||$app.opt.clickInterval||50);
+    this.id = window.setInterval($g.ClickCookie,itv||1000/$app.opt.clickPs);
   };
   Clicker.stop = function(){
     if(this.id===undefined){return;}
@@ -639,9 +643,9 @@ var Cookiesmith = (function($g,$app){
   $app.autoStart = function(opt){
     if(started) return $app;
     $app.init(opt);
-    Clicker.start();
-    GoldHunter.start();
-    Buyer.start();
+    if($app.opt.clicker)     Clicker.start();
+    if($app.opt.goldHunter)  GoldHunter.start();
+    if($app.opt.buyer)       Buyer.start();
     started = true;
     Util.log('operation started');
     Util.popup('started');
