@@ -724,6 +724,22 @@ var Cookiesmith = (function($g,$app){
     console.debug('cpsPs: '+ctx.cpsPs);
   }
 
+  /*
+   *  SearchBuyer extends Basic Buyer
+   */
+  var SearchBuyer = $app.SimpleBuyer = function(){};
+  SearchBuyer.prototype = Object.create(SimpleBuyer.prototype);
+  SearchBuyer.prototype.constructor = SearchBuyer();
+  SearchBuyer.prototype.init = function(){
+    BasicBuyer.prototype.init.apply(this); // super.super()
+    this.interval = 1000;
+    this.param = {
+      luckyCookiesThreshold: $app.opt.luckyCookiesTime || 90,
+      upgradeDefaultThreshold: $app.opt.upgradeDefaultTime || 60,
+      cost: $app.opt.costFunc || this.costs.cpsPsCube,
+    };
+  }
+
   // set default Buyer
   var Buyer = $app.Buyer = new SimpleBuyer();
 
