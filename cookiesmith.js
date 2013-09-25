@@ -122,6 +122,15 @@ var Cookiesmith = (function($g,$app){
   Util.delay = function(price,cps){
     return price>$g.cookies ? (price-$g.cookies)/cps : 0;
   };
+  Util.merge = function(){
+    var base = arguments[0];
+    for(var i=1; i<arguments.length; i++){
+      for(var k in arguments[i]){
+        base[k] = arguments[i][k];
+      }
+    }
+    return base;
+  };
 
   /*
    * Interceptor
@@ -215,6 +224,11 @@ var Cookiesmith = (function($g,$app){
     this.interceptorKey = 'basicBuyer';
     this.last = {};
     this.saveStatus();
+    this.context = {
+      buyer: this,
+    };
+    this.param = {};
+    this.processing = false;
   }
   BasicBuyer.prototype.saveStatus = function(){
     this.last.T = $g.T;
@@ -222,27 +236,17 @@ var Cookiesmith = (function($g,$app){
     this.last.cookieClicks = $g.cookieClicks;
   };
   BasicBuyer.prototype.loop = function(){
-    if($g.time < this.nextTime) return;
+    if($g.time < this.nextTime || this.processing ) return;
+    this.processing = true;
 
     var itv = $g.time-this.last.time;
     var clicks = $g.cookieClicks - this.last.cookieClicks;
     var clickCps = itv===0 ? 0 : $g.computedMouseCps * clicks / (itv/1000);
-    this.clicksPs = itv===0 ? 0 : clicks / (itv/1000);
-    this.clickCps = clickCps;
-    this.realCps = $g.cookiesPs + clickCps;
+    this.context.clicksPs = itv===0 ? 0 : clicks / (itv/1000);
+    this.context.clickCps = clickCps;
+    this.context.realCps = $g.cookiesPs + clickCps;
 
     this.action();
-
-    /*
-    console.debug(
-      (Util.gameTime()/1000)+', '
-      +this.realCps+', '
-      +this.context.cpsPs+', '
-      +(this.context.cpsPs/(Util.gameTime()/1000))+', '
-      +(this.context.cpsPs/Math.pow(Util.gameTime()/1000,2)*1000000)+', '
-      +(this.context.cpsPs/Math.pow(Util.gameTime()/1000,3)*1000000000)+', '
-      );
-  */
 
     if (this.last.time+this.interval < $g.time){
       this.saveStatus();
@@ -250,6 +254,7 @@ var Cookiesmith = (function($g,$app){
     if(this.nextTime <= $g.time){
       this.nextTime = $g.time + this.interval;
     }
+    this.processing = false;
   };
   BasicBuyer.prototype.start = function(){
     var self = this;
@@ -273,34 +278,82 @@ var Cookiesmith = (function($g,$app){
   SimpleBuyer.prototype.init = function(){
     BasicBuyer.prototype.init.apply(this); // super()
     this.interval = 1000;
-    this.costs = {
-      cpsPsConst: function(context,price,cps,delay){
-        return context.cpsPs*delay - cps;
+    this.stgs = {
+      cpcpsExp: {
+        init: function(){},
+        prepare: function(){},
+        cost: function(context,price,cps,delay){
+          return price/cps * Math.pow(2,delay/200);
+        },
       },
-      cpsPsLinear: function(context,price,cps,delay){
-        return context.cpsPs*delay*delay/4 - cps;
+      cpsPsConst: {
+        init: function(){},
+        prepare: function(){},
+        cost: function(context,price,cps,delay){
+          return context.cpsPs*delay - cps;
+        },
       },
-      cpsPsSquare: function(ctx,price,cps,delay){
-        var t0 = Util.gameTime()/1000;
-        var t1 = t0 + delay;
-        var a = ctx.cpsPs / Math.pow(t0,2);
-        var dcps = a/3 * (Math.pow(t1,3) - Math.pow(t0,3));
-        return dcps - cps;
+      cpsPsLinear:  {
+        init: function(){},
+        prepare: function(){},
+        cost: function(context,price,cps,delay){
+          return context.cpsPs*delay*delay/4 - cps;
+        },
       },
-      cpsPsCube: function(ctx,price,cps,delay){
-        var t0 = Util.gameTime()/1000;
-        var t1 = t0 + delay;
-        var a = ctx.cpsPs / Math.pow(t0,3);
-        var dcps = a/4 * (Math.pow(t1,4) - Math.pow(t0,4));
-        return dcps - cps;
+      cpsPsSquare:  {
+        init: function(){},
+        prepare: function(){},
+        cost: function(ctx,price,cps,delay){
+          var t0 = Util.gameTime()/1000;
+          var t1 = t0 + delay;
+          var a = ctx.cpsPs / Math.pow(t0,2);
+          var dcps = a/3 * (Math.pow(t1,3) - Math.pow(t0,3));
+          return dcps - cps;
+        },
+      },
+      cpsPsCube:  {
+        init: function(){},
+        prepare: function(){},
+        cost: function(ctx,price,cps,delay){
+          var t0 = Util.gameTime()/1000;
+          var t1 = t0 + delay;
+          var a = ctx.cpsPs / Math.pow(t0,3);
+          var dcps = a/4 * (Math.pow(t1,4) - Math.pow(t0,4));
+          return dcps - cps;
+        },
+      },
+      timeLinear: {
+        init: function(ctx){
+          var target = 1000 * 1000;
+          while(target < $g.cookiesEarned) target *= 1000;
+          ctx.target = target;
+        },
+        prepare: function(ctx){
+          while(ctx.target < $g.cookiesEarned)
+            ctx.target *= 1000;
+        },
+        cost: function(ctx,price,cps,delay){
+          var cost = price/ctx.realCps + delay;
+          var target = ctx.target - $g.cookiesEarned;
+          var benefit = cps*target / ((ctx.realCps+cps)*ctx.realCps);
+          return cost - benefit;
+        },
       },
     };
-    this.param = {
+
+    this.param = Util.merge(this.param,{
       costDenom: $app.opt.costDenom || 60,
       luckyCookiesThreshold: $app.opt.luckyCookiesTime || 90,
       upgradeDefaultThreshold: $app.opt.upgradeDefaultTime || 60,
-      cost: $app.opt.costFunc || this.costs.cpsPsCube,
-    };
+    });
+
+    this.context = Util.merge(this.context,{
+      buyer: this,
+      param: this.param,
+      stg : $app.opt.strategy || this.stgs.cpcpsExp,
+    });
+
+    if(this.context.stg.init) this.context.stg.init(this.context);
     this.action = this.choose;
   }
   SimpleBuyer.prototype.buy = function(){
@@ -341,24 +394,20 @@ var Cookiesmith = (function($g,$app){
         s: 0,
       }
     } else {
-      var context = {
-        scores:[],
-        cpsForUpgrade:{},
-        cpsPs: this.cpsPs,
-        param: this.param,
-        realCps: this.realCps,
-        clicksPs: this.clicksPs,
-        clickCps: this.clickCps,
-        cost: this.param.cost,
-      };
-      this.calcCpsPs(context);
-      this.calcScoresForUpgrade(context);
-      this.calcScoresForObjects(context);
-      this.context = context;
+
+      this.context.scores = [];
+      this.context.cpsForUpgrade = {};
+
+      this.calcCpsPs(this.context);
+
+      if(this.context.stg.prepare) this.context.stg.prepare(this.context);
+
+      this.calcScoresForUpgrade(this.context);
+      this.calcScoresForObjects(this.context);
 
       //Util.forEach( scores, function(s){console.debug( s.obj.name + ': '+ s.s );} );
 
-      target = Util.maxBy( context.scores, function(s){return s.s} );
+      target = Util.maxBy( this.context.scores, function(s){return s.s} );
     }
 
     target.status = this.status;
@@ -367,7 +416,7 @@ var Cookiesmith = (function($g,$app){
     this.action = this.buy;
 
     if(target.type==='obj'){
-      var delay = target.obj.price<$g.cookies ? 0 : Math.ceil((target.obj.price-$g.cookies)/this.realCps);
+      var delay = target.obj.price<$g.cookies ? 0 : Math.ceil((target.obj.price-$g.cookies)/this.context.realCps);
       if(delay===0){
         return this.buy();
       } else {
@@ -376,7 +425,7 @@ var Cookiesmith = (function($g,$app){
       }
 
     } else if (target.type==='ug'){
-      var delay = target.obj.basePrice<$g.cookies ? 0 : Math.ceil((target.obj.basePrice-$g.cookies)/this.realCps);
+      var delay = target.obj.basePrice<$g.cookies ? 0 : Math.ceil((target.obj.basePrice-$g.cookies)/this.context.realCps);
       if(delay===0){
         return this.buy();
       } else {
@@ -407,8 +456,8 @@ var Cookiesmith = (function($g,$app){
     for(var i=0;i<$o.length;i++){
       var obj = $o[i];
       var cpcps = obj.price / obj.storedCps;
-      var delay = Util.delay(obj.price,this.realCps);
-      var cost = context.cost(context,obj.price,obj.storedCps,delay);
+      var delay = Util.delay(obj.price,this.context.realCps);
+      var cost = context.stg.cost(context,obj.price,obj.storedCps,delay);
       if(cost!==undefined)
         scores.push( { type:'obj', s: -cost, obj: obj } );
     }
@@ -426,13 +475,13 @@ var Cookiesmith = (function($g,$app){
         case 'cps':
         var cps = policy.cps(context,ug);
         var cpcps = ug.basePrice / cps;
-        var delay = Util.delay(ug.basePrice,this.realCps);
-        var cost = context.cost(context,ug.basePrice,cps,delay);
+        var delay = Util.delay(ug.basePrice,this.context.realCps);
+        var cost = context.stg.cost(context,ug.basePrice,cps,delay);
         scores.push({ type:'ug', s: -cost , obj: ug, });
         break;
 
         case 'delay':
-        if( Util.delay(ug.basePrice,this.realCps) <= policy.delay(context,ug) ){
+        if( Util.delay(ug.basePrice,this.context.realCps) <= policy.delay(context,ug) ){
           scores.push({type:'ug', s: Infinity, ug:ug, });
         }
         break;
@@ -690,7 +739,7 @@ var Cookiesmith = (function($g,$app){
       name: name,
       price: price,
       cps: cps,
-      cost: ctx.cost(ctx,price,cps,Util.delay(price,ctx.realCps)),
+      cost:  ctx.stg.cost(ctx,price,cps,Util.delay(price,ctx.realCps)),
       delay: Util.delay(price,ctx.realCps),
     };
   }
@@ -733,11 +782,15 @@ var Cookiesmith = (function($g,$app){
   SearchBuyer.prototype.init = function(){
     BasicBuyer.prototype.init.apply(this); // super.super()
     this.interval = 1000;
-    this.param = {
+    this.param = Util.merge(this.param,{
       luckyCookiesThreshold: $app.opt.luckyCookiesTime || 90,
       upgradeDefaultThreshold: $app.opt.upgradeDefaultTime || 60,
       cost: $app.opt.costFunc || this.costs.cpsPsCube,
-    };
+    });
+    this.context = Util.merge(this.context,{
+
+    });
+
   }
 
   // set default Buyer
