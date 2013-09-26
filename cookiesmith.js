@@ -286,59 +286,6 @@ var Cookiesmith = (function($g,$app){
           return price/cps * Math.pow(2,delay/200);
         },
       },
-      cpsPsConst: {
-        init: function(){},
-        prepare: function(){},
-        cost: function(context,price,cps,delay){
-          return context.cpsPs*delay - cps;
-        },
-      },
-      cpsPsLinear:  {
-        init: function(){},
-        prepare: function(){},
-        cost: function(context,price,cps,delay){
-          return context.cpsPs*delay*delay/4 - cps;
-        },
-      },
-      cpsPsSquare:  {
-        init: function(){},
-        prepare: function(){},
-        cost: function(ctx,price,cps,delay){
-          var t0 = Util.gameTime()/1000;
-          var t1 = t0 + delay;
-          var a = ctx.cpsPs / Math.pow(t0,2);
-          var dcps = a/3 * (Math.pow(t1,3) - Math.pow(t0,3));
-          return dcps - cps;
-        },
-      },
-      cpsPsCube:  {
-        init: function(){},
-        prepare: function(){},
-        cost: function(ctx,price,cps,delay){
-          var t0 = Util.gameTime()/1000;
-          var t1 = t0 + delay;
-          var a = ctx.cpsPs / Math.pow(t0,3);
-          var dcps = a/4 * (Math.pow(t1,4) - Math.pow(t0,4));
-          return dcps - cps;
-        },
-      },
-      timeLinear: {
-        init: function(ctx){
-          var target = 1000 * 1000;
-          while(target < $g.cookiesEarned) target *= 1000;
-          ctx.target = target;
-        },
-        prepare: function(ctx){
-          while(ctx.target < $g.cookiesEarned)
-            ctx.target *= 1000;
-        },
-        cost: function(ctx,price,cps,delay){
-          var cost = price/ctx.realCps + delay;
-          var target = ctx.target - $g.cookiesEarned;
-          var benefit = cps*target / ((ctx.realCps+cps)*ctx.realCps);
-          return cost - benefit;
-        },
-      },
     };
 
     this.param = Util.merge(this.param,{
@@ -748,9 +695,8 @@ var Cookiesmith = (function($g,$app){
     function show(c){
       console.debug(
         c.name,
-        'total:'+Util.round(c.cost),
+        'cost:'+Util.round(c.cost),
         'cpsGain:'+Util.round(c.cps),
-        'squareCost:'+Util.round(c.delay*c.delay*ctx.cpsPs/4),
         'delay:'+Util.round(c.delay)
         );
     }
@@ -771,26 +717,6 @@ var Cookiesmith = (function($g,$app){
         show(c);
       });
     console.debug('cpsPs: '+ctx.cpsPs);
-  }
-
-  /*
-   *  SearchBuyer extends Basic Buyer
-   */
-  var SearchBuyer = $app.SimpleBuyer = function(){};
-  SearchBuyer.prototype = Object.create(SimpleBuyer.prototype);
-  SearchBuyer.prototype.constructor = SearchBuyer();
-  SearchBuyer.prototype.init = function(){
-    BasicBuyer.prototype.init.apply(this); // super.super()
-    this.interval = 1000;
-    this.param = Util.merge(this.param,{
-      luckyCookiesThreshold: $app.opt.luckyCookiesTime || 90,
-      upgradeDefaultThreshold: $app.opt.upgradeDefaultTime || 60,
-      cost: $app.opt.costFunc || this.costs.cpsPsCube,
-    });
-    this.context = Util.merge(this.context,{
-
-    });
-
   }
 
   // set default Buyer
