@@ -345,7 +345,7 @@ var Cookiesmith = (function($g,$app){
       this.context.scores = [];
       this.context.cpsForUpgrade = {};
 
-      this.calcCpsPs(this.context);
+      //this.calcCpsPs(this.context);
 
       if(this.context.stg.prepare) this.context.stg.prepare(this.context);
 
@@ -716,7 +716,7 @@ var Cookiesmith = (function($g,$app){
       function(c){
         show(c);
       });
-    console.debug('cpsPs: '+ctx.cpsPs);
+    //console.debug('cpsPs: '+ctx.cpsPs);
   }
 
   // set default Buyer
