@@ -241,8 +241,11 @@ var Cookiesmith = (function($g,$app){
 
     var itv = $g.time-this.last.time;
     var clicks = $g.cookieClicks - this.last.cookieClicks;
-    var clickCps = itv===0 ? 0 : $g.computedMouseCps * clicks / (itv/1000);
-    this.context.clicksPs = itv===0 ? 0 : clicks / (itv/1000);
+    var clicksPs = itv===0 ? 0 : clicks / (itv/1000);
+    if(this.context.clicksPs)
+      clicksPs = this.context.clicksPs*0.7 + clicksPs*0.3;
+    var clickCps = $g.computedMouseCps * clicksPs;
+    this.context.clicksPs = clicksPs;
     this.context.clickCps = clickCps;
     this.context.realCps = $g.cookiesPs + clickCps;
 
@@ -280,10 +283,10 @@ var Cookiesmith = (function($g,$app){
     this.interval = 1000;
     this.stgs = {
       cpcpsExp: {
-        init: function(){},
-        prepare: function(){},
-        cost: function(context,price,cps,delay){
-          return price/cps * Math.pow(2,delay/200);
+        init: function(ctx){},
+        prepare: function(ctx){},
+        cost: function(ctx,price,cps,delay){
+          return price/cps * Math.pow(5,delay/60);
         },
       },
     };
@@ -305,9 +308,9 @@ var Cookiesmith = (function($g,$app){
   }
   SimpleBuyer.prototype.buy = function(){
     if(this.choice===undefined){ return };
-    if(this.choice.lastStat !== this.choice.status()){
-      Util.log('Cps changed. retry planning.');
-      Util.popup('Cps changed. retry planning.');
+    if(this.choice.lastStat !== this.choice.status(this.context)){
+      Util.log('Status changed. recalculate.');
+      Util.popup('Status changed. recalculate.');
       return this.choose();
     }
 
@@ -333,6 +336,54 @@ var Cookiesmith = (function($g,$app){
     this.action = this.choose;
   };
 
+  SimpleBuyer.prototype.stabilize = function(ctx){
+    var baseCps = $g.cookiesPs;
+    var baseClickCps = ctx.clickCps;
+    if($g.frenzy>0) {
+      baseCps /= $g.frenzyPower;
+      baseClickCps /= $g.frenzyPower;
+    }
+    if($g.clickFrenzy>0) baseClickCps /= 777;
+    baseCps += baseClickCps;
+    ctx.baseCps = baseCps;
+    ctx.baseClickCps = baseClickCps;
+
+    // estimate golden cookies effect
+    var m = 5+9/2;
+    var cookies = Math.max(ctx.baseCps*60,$g.cookies);
+    if ($g.Has('Lucky day')) m/=2;
+    if ($g.Has('Serendipity')) m/=2;
+    var gcInterval = Math.ceil($g.fps*60*m);
+    var gcDist = {frenzy:0.4863403449935448, multiply:0.4863403449935448, chain:0.004544942361020921, click:0.02277436765188959};
+    var lucky = $g.Has('Get lucky')+1;
+    var gcGain=0;
+    // frenzy gain
+    gcGain += 77*lucky * ctx.baseCps * gcDist.frenzy;
+    // multiply
+    gcGain += (Math.min(cookies*0.1,(ctx.baseCps-ctx.baseClickCps)*60*20)+13) * gcDist.multiply;
+    // chain
+    var chGain=0, p=1.0, e=0, et=0;
+    for(var i=1;i<=13;i++){
+      e = e*10+6;
+      chGain += e * p;
+      if(i>4){
+        if(cookies+et<=e) break;
+        p *= 0.9;
+        et += e;
+      }
+    }
+    gcGain += chGain * gcDist.chain;
+    // click
+    var gcClickGain = 777*lucky * ctx.baseClickCps * gcDist.click;
+
+    ctx.estGcCps = (gcGain+gcClickGain)/gcInterval;
+    ctx.estCps = ctx.baseCps + ctx.estGcCps;
+    ctx.estClickCps = ctx.baseClickCps + gcClickGain/gcInterval;
+
+    //console.debug('estCps: '+ctx.estCps);
+    //console.debug('estGcCps: '+ctx.estGcCps);
+  };
+
   SimpleBuyer.prototype.choose = function(){
     if($g.cookiesPs<0.1){
       target = {
@@ -344,26 +395,23 @@ var Cookiesmith = (function($g,$app){
 
       this.context.scores = [];
       this.context.cpsForUpgrade = {};
-
+      this.stabilize(this.context);
       //this.calcCpsPs(this.context);
-
       if(this.context.stg.prepare) this.context.stg.prepare(this.context);
-
       this.calcScoresForUpgrade(this.context);
       this.calcScoresForObjects(this.context);
-
       //Util.forEach( scores, function(s){console.debug( s.obj.name + ': '+ s.s );} );
-
       target = Util.maxBy( this.context.scores, function(s){return s.s} );
     }
 
     target.status = this.status;
-    target.lastStat = target.status();
+    target.lastStat = target.status(this.context);
     this.choice = target;
     this.action = this.buy;
 
+    var estCps = this.context.estCps || this.context.realCps;
     if(target.type==='obj'){
-      var delay = target.obj.price<$g.cookies ? 0 : Math.ceil((target.obj.price-$g.cookies)/this.context.realCps);
+      var delay = target.obj.price<$g.cookies ? 0 : Math.ceil((target.obj.price-$g.cookies)/estCps);
       if(delay===0){
         return this.buy();
       } else {
@@ -372,7 +420,7 @@ var Cookiesmith = (function($g,$app){
       }
 
     } else if (target.type==='ug'){
-      var delay = target.obj.basePrice<$g.cookies ? 0 : Math.ceil((target.obj.basePrice-$g.cookies)/this.context.realCps);
+      var delay = target.obj.basePrice<$g.cookies ? 0 : Math.ceil((target.obj.basePrice-$g.cookies)/estCps);
       if(delay===0){
         return this.buy();
       } else {
@@ -385,14 +433,14 @@ var Cookiesmith = (function($g,$app){
   SimpleBuyer.prototype.calcCpsPs = function(context){
     var cpss = [];
     for(var i=0;i<$o.length;i++){
-      cpss.push( $o[i].storedCps / ($o[i].price/context.realCps) );
+      cpss.push( $o[i].storedCps / ($o[i].price/context.estCps) );
     }
     for(var i=0;i<$u.length;i++){
       var ug = $u[i];
       if(ug.bought===1 || ug.unlocked===0 ) continue;
       var policy = this.getPolicyForUpgrade(ug.name);
       if (policy.p==='cps') {
-        cpss.push( policy.cps(context,ug) / (ug.basePrice/context.realCps) );
+        cpss.push( policy.cps(context,ug) / (ug.basePrice/context.estCps) );
       }
     }
     context.cpsPs = Util.sumBy(cpss)/cpss.length;
@@ -403,7 +451,7 @@ var Cookiesmith = (function($g,$app){
     for(var i=0;i<$o.length;i++){
       var obj = $o[i];
       var cpcps = obj.price / obj.storedCps;
-      var delay = Util.delay(obj.price,this.context.realCps);
+      var delay = Util.delay(obj.price,this.context.estCps);
       var cost = context.stg.cost(context,obj.price,obj.storedCps,delay);
       if(cost!==undefined)
         scores.push( { type:'obj', s: -cost, obj: obj } );
@@ -422,14 +470,18 @@ var Cookiesmith = (function($g,$app){
         case 'cps':
         var cps = policy.cps(context,ug);
         var cpcps = ug.basePrice / cps;
-        var delay = Util.delay(ug.basePrice,this.context.realCps);
-        var cost = context.stg.cost(context,ug.basePrice,cps,delay);
+        var delay = Util.delay(ug.basePrice,context.estCps);
+        if( ug.basePrice/context.estCps < 2 ){
+          var cost = -Infinity;
+        } else {
+          var cost = context.stg.cost(context,ug.basePrice,cps,delay);
+        }
         scores.push({ type:'ug', s: -cost , obj: ug, });
         break;
 
         case 'delay':
-        if( Util.delay(ug.basePrice,this.context.realCps) <= policy.delay(context,ug) ){
-          scores.push({type:'ug', s: Infinity, ug:ug, });
+        if( Util.delay(ug.basePrice,this.context.estCps) <= policy.delay(context,ug) ){
+          scores.push({type:'ug', s: Infinity, obj:ug, });
         }
         break;
 
@@ -449,7 +501,7 @@ var Cookiesmith = (function($g,$app){
   SimpleBuyer.prototype.ugPolicyTable = (function(){
     function gainGlobalCpsMult(rate){
       return cpsPolicy(function(ctx,ug){
-        return $g.cookiesPs/$g.globalCpsMult*rate;
+        return (ctx.estCps-ctx.estClickCps)/$g.globalCpsMult*rate;
       });
     }
     function gainBase(objName,base){
@@ -488,19 +540,19 @@ var Cookiesmith = (function($g,$app){
     }
     function gainClickByCps(rate){
       return cpsPolicy(function(ctx,ug){
-        return $g.cookiesPs * rate * ctx.clicksPs;
+        return ctx.estCps * rate * ctx.clicksPs;
       });
     }
     function kitten(rate){
       return cpsPolicy(function(ctx,ug){
-        return $g.cookiesPs * ($g.milkProgress*rate);
+        return ctx.estCps * ($g.milkProgress*rate);
       });
     }
     var LuckyTwice = delayPolicy(function(ctx,ug){
-      ctx.param.luckyCookiesThreshold
+      return ctx.param.luckyCookiesThreshold;
     });
     var Default = delayPolicy(function(ctx,ug){
-      ctx.param.upgradeDefaultThreshold;
+      return ctx.param.upgradeDefaultThreshold;
     });
     function cpsPolicy(f){
       return { p:'cps', cps:f };
@@ -664,8 +716,11 @@ var Cookiesmith = (function($g,$app){
       'Neuromancy': Ignore,
     };
   })();
-  SimpleBuyer.prototype.status = function(){
-    var stat = $g.cookiesPs;
+  SimpleBuyer.prototype.status = function(ctx){
+    var stat = '';
+    for (var i=0;i<$u.length;i++){
+      stat += $u[i].unlocked<<1 + $u[i].bought;
+    }
     return stat;
   }
 
@@ -686,8 +741,8 @@ var Cookiesmith = (function($g,$app){
       name: name,
       price: price,
       cps: cps,
-      cost:  ctx.stg.cost(ctx,price,cps,Util.delay(price,ctx.realCps)),
-      delay: Util.delay(price,ctx.realCps),
+      cost:  ctx.stg.cost(ctx,price,cps,Util.delay(price,ctx.estCps)),
+      delay: Util.delay(price,ctx.estCps),
     };
   }
   SimpleBuyer.prototype.showCosts = function(){
