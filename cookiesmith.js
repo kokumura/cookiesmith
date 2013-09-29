@@ -119,9 +119,32 @@ Util.ordNum = function(num){
     }
   }
 };
-Util.delay = function(price,cps,cookies){
-  if(cookies===undefined) cookies = $g.cookies;
-  return price>$g.cookies ? (price-cookies)/cps : 0;
+Util.delay = function(price,cps){
+  return price>0 ? price/cps : 0;
+};
+Util.realDelay = function(price,cps,clickCps){
+  if(price<=0) return 0;
+  var delay = 0;
+  if($g.frenzy>0||$g.clickFrenzy>0){
+    var frenzyTime,frenzyCps,total;
+    if($g.frenzy>0){
+      frenzyTime = $g.frenzy/Timer.fps;
+      frenzyCps = cps*$g.frenzyPower;
+      total = frenzyCps*frenzyTime;
+    } else if($g.clickFrenzy>0){
+      frenzyTime = $g.clickFrenzy/Timer.fps;
+      frenzyCps = (cps-clickCps)+clickCps*777;
+      total = frenzyCps*frenzyTime;
+    }
+    if(price > total){
+      delay += frenzyTime;
+      price -= total;
+    }else{
+      delay = price/frenzyCps;
+      price = 0;
+    }
+  }
+  return delay+price/cps;
 };
 Util.merge = function(){
   var base = arguments[0];
@@ -147,6 +170,11 @@ Util.beautifyTime = function(sec){
     else str+=m;
   str += ':'+Util.pad0(s,2);
   return str;
+};
+Util.smooth = function(last,current,rate,th){
+  if(th===undefined) th=1.0-rate;
+  if( last===undefined || Math.abs(last-current)>last*th ) return current;
+  return last*rate + current*(1.0-rate);
 };
 
 /*
@@ -196,14 +224,62 @@ Interceptor.confirmHook = {};
    * Clicker
    */
    var Clicker = $app.Clicker = {};
-   Clicker.start = function(itv){
-    if(this.id!==undefined){this.stop();}
-    this.id = window.setInterval($g.ClickCookie,itv||1000/$app.opt.clickPs);
+   Clicker.start = function(){
+    if(this.running) return;
+    this.idClick = window.setInterval($g.ClickCookie,41);
+    this.running = true;
   };
   Clicker.stop = function(){
-    if(this.id===undefined) return;
-    window.clearInterval(this.id);
-    this.id = undefined;
+    if(!this.running) return;
+    window.clearInterval(this.idClick);
+    this.running = false;
+  };
+
+  /*
+   * Timer
+   */
+   var Timer = $app.Timer = {};
+   Timer.set = function(){
+    if(this.running) return;
+    this.last = this.getStatus();
+    this.idTimer = window.setInterval(this.Measure,1000);
+    this.fps = $g.fps;
+    this.running = true;
+  };
+  Timer.getStatus = function(){
+    return {
+      T: $g.T,
+      time: (new Date()).getTime(),
+      clicks: $g.cookieClicks,
+    }
+  };
+  Timer.Measure = function(){
+    var self = Timer;
+    var stat = self.getStatus();
+    var last = self.last;
+    var interval = stat.time-last.time;
+
+    if( stat.T<=last.T || stat.clicks<=last.clicks ){
+      this.last = stat;
+      return;
+    }
+
+    var clicksPs = (stat.clicks-last.clicks)/interval*1000;
+    clicksPs = Util.smooth( last.clicksPs, clicksPs, 0.5, 0.1 );
+    self.clicksPs = last.clicksPs = clicksPs;
+
+    var fps = (stat.T-last.T)/interval*1000;
+    fps = Util.smooth( last.fps, fps, 0.5, 0.1 );
+    self.fps = last.fps = fps;
+
+    this.last = stat;
+  };
+  Timer.remove = function(){
+    if(!this.running) return;
+    window.clearInterval(this.idTimer);
+    this.clicksPs = undefined;
+    this.fps = undefined;
+    this.running = false;
   };
 
   /*
@@ -223,11 +299,13 @@ Interceptor.confirmHook = {};
     }
   };
   GoldHunter.start = function(){
-    var chain = Interceptor.loopHook;
-    if(chain.gh) return;
-    chain.gh = this.hunt;
+    if(this.running) return;
+    this.running = true;
+    Interceptor.loopHook.gh = this.hunt;
   };
   GoldHunter.stop = function(){
+    if(!this.running) return;
+    this.running = false;
     delete Interceptor.loopHook.gh;
   };
 
@@ -257,10 +335,14 @@ Interceptor.confirmHook = {};
     this.processing = true;
 
     var itv = $g.time-this.last.time;
-    var clicks = $g.cookieClicks - this.last.cookieClicks;
-    var clicksPs = itv===0 ? 0 : clicks / (itv/1000);
-    if(this.context.clicksPs && this.context.clicksPs>1 && Math.abs(this.context.clicksPs-clicksPs)<this.context.clicksPs*0.5)
-      clicksPs = this.context.clicksPs*0.8 + clicksPs*0.2;
+
+    if(Timer.running && Timer.clicksPs!==undefined){
+      var clicksPs = Timer.clicksPs;
+    } else {
+      var itv = $g.time-this.last.time;
+      var clicksPs = itv===0 ? 0 : ($g.cookieClicks-this.last.cookieClicks) / (itv/1000);
+      clicksPs = Util.smooth( this.context.clicksPs, clicksPs, 0.8 );
+    }
     var clickCps = $g.computedMouseCps * clicksPs;
     this.context.clicksPs = clicksPs;
     this.context.clickCps = clickCps;
@@ -277,15 +359,16 @@ Interceptor.confirmHook = {};
     this.processing = false;
   };
   BasicBuyer.prototype.start = function(){
-    var self = this;
-    if(this.running) this.stop();
+    if(this.running) return;
     this.running = true;
     this.init();
     this.nextTime = $g.time + this.interval;
+    var self = this;
     Interceptor.loopHook[this.interceptorKey] = function(){self.loop()};
     Util.log('buyer started');
   };
   BasicBuyer.prototype.stop = function(){
+    if(!this.running) return;
     if(Interceptor.loopHook[this.interceptorKey]===undefined) return;
     delete Interceptor.loopHook[this.interceptorKey];
     this.running = false;
@@ -378,7 +461,7 @@ Interceptor.confirmHook = {};
     var cookies = Math.max(ctx.baseCps*60,$g.cookies);
     if ($g.Has('Lucky day')) m/=2;
     if ($g.Has('Serendipity')) m/=2;
-    var gcInterval = Math.ceil($g.fps*60*m);
+    var gcInterval = Math.ceil(Timer.fps*60*m);
     var gcDist = {frenzy:0.4863403449935448, multiply:0.4863403449935448, chain:0.004544942361020921, click:0.02277436765188959};
     var lucky = $g.Has('Get lucky')+1;
     var gcGain=0;
@@ -438,7 +521,7 @@ Interceptor.confirmHook = {};
     var estCps = this.context.estCps || this.context.realCps;
     var target = context.target;
     if(target.type==='obj'){
-      var delay = target.obj.price<$g.cookies ? 0 : Math.ceil((target.obj.price-$g.cookies)/estCps);
+      var delay = Math.round( Util.realDelay( target.obj.price-$g.cookies, this.context.baseCps, this.context.baseClickCps ) );
       if(delay===0){
         return this.buy();
       } else {
@@ -447,7 +530,7 @@ Interceptor.confirmHook = {};
       }
 
     } else if (target.type==='ug'){
-      var delay = target.obj.basePrice<$g.cookies ? 0 : Math.ceil((target.obj.basePrice-$g.cookies)/estCps);
+      var delay = Math.round( Util.realDelay( target.obj.basePrice-$g.cookies, this.context.baseCps, this.context.baseClickCps ) );
       if(delay===0){
         return this.buy();
       } else {
@@ -478,7 +561,7 @@ Interceptor.confirmHook = {};
     for(var i=0;i<$o.length;i++){
       var obj = $o[i];
       var cpcps = obj.price / obj.storedCps;
-      var delay = Util.delay(obj.price,this.context.estCps,0);
+      var delay = Util.delay(obj.price,this.context.estCps);
       var cost = context.stg.cost(context,obj.price,obj.storedCps,delay);
       if(cost!==undefined)
         scores.push( { type:'obj', s: -cost, obj: obj } );
@@ -497,7 +580,7 @@ Interceptor.confirmHook = {};
         case 'cps':
         var cps = policy.cps(context,ug);
         var cpcps = ug.basePrice / cps;
-        var delay = Util.delay(ug.basePrice,context.estCps,0);
+        var delay = Util.delay(ug.basePrice,context.estCps);
         if( ug.basePrice/context.estCps < 5 ){
           var cost = -Infinity;
         } else {
@@ -507,7 +590,7 @@ Interceptor.confirmHook = {};
         break;
 
         case 'delay':
-        if( Util.delay(ug.basePrice,this.context.estCps) <= policy.delay(context,ug) ){
+        if( Util.delay(ug.basePrice-$g.cookies,this.context.estCps) <= policy.delay(context,ug) ){
           scores.push({type:'ug', s: Infinity, obj:ug, });
         }
         break;
@@ -548,21 +631,22 @@ Interceptor.confirmHook = {};
     }
     function gainMouseAndCursorBase(mouseBase,cursorBase){
       return cpsPolicy(function(ctx,ug){
-        return (mouseBase * ctx.clicksPs) + (cursorBase * $o[0].amount);
+        return (mouseBase * ctx.clicksPs) + (cursorBase * $O['Cursor'].amount);
       });
     }
     function twiceMouseAndCursor(){
       return cpsPolicy(function(ctx,ug){
-        return $o[0].storedCps + ctx.clickCps;
+        return $O['Cursor'].storedCps + ctx.estClickCps;
       });
     }
     function gainMouseAndCursorByNonCursor(base){
       return cpsPolicy(function(ctx,ug){
         var amount = 0;
-        for(var i=1;i<$o.length;i++){
-          amount += $o[i].amount;
+        for(var i=0;i<$o.length;i++){
+          if($o[i].name!=='Cursor')
+            amount += $o[i].amount;
         }
-        return base * (amount + ctx.clicksPs);
+        return base*amount*($O['Cursor'].amount+ctx.clicksPs);
       });
     }
     function gainClickByCps(rate){
@@ -855,8 +939,9 @@ Interceptor.confirmHook = {};
     var button = document.getElementById(this.const.buttonId);
     panel.removeChild(button);
   };
-  UI.WriteButton=function(label,callback){
-    return '<a class="option" onclick="'+callback+'">'+label+'</a>';
+  UI.WriteButton=function(label,callback,cls){
+    cls = cls ? ' '+cls : '';
+    return '<a class="option'+cls+'" onclick="'+callback+'">'+label+'</a>';
   }
   UI.handle  = function(id){
     var ui = UI;
@@ -881,6 +966,15 @@ Interceptor.confirmHook = {};
       Clicker.start();
       GoldHunter.start();
       break;
+
+      case 'start-buyer': Buyer.start(); break;
+      case 'stop-buyer': Buyer.stop(); break;
+
+      case 'start-clicker': Clicker.start(); break;
+      case 'stop-clicker': Clicker.stop(); break;
+
+      case 'start-goldHunter': GoldHunter.start(); break;
+      case 'stop-goldHunter': GoldHunter.stop(); break;
     }
   };
   UI.UpdateMenuHook = function(){
@@ -901,23 +995,47 @@ Interceptor.confirmHook = {};
       var str = '<div class="section">Cookiesmith Menu</div>';
 
       str += '<div class="subsection">'+'<div class="title">General</div>';
-      str += '<div class="listing">'+ui.WriteButton('Start Cookiesmith',uiPref+"handle('start');")+'<label>(Re)Start Cookiesmith</label></div>';
-      str += '<div class="listing">'+ui.WriteButton('Stop Cookiesmith',uiPref+"handle('stop');")+'<label>Stop Cookiesmith</label></div>';
-      str += '<div class="listing">'+ui.WriteButton('Remove Cookiesmith',uiPref+"handle('remove');")+'<label>Stop and Remove Cookiesmith</label></div>';
-      str += '</div>'; // subsection Control
 
+      str += '<div class="listing">';
+      str += ui.WriteButton('Start',uiPref+"handle('start');");
+      str += ui.WriteButton('Stop',uiPref+"handle('stop');");
+      str += '<label>Start / Stop all modules</label>';
+      str += '</div>';
+
+      str += '<div class="listing">';
+      if(Buyer.running){
+        str += ui.WriteButton('Stop Buyer',uiPref+"handle('stop-buyer');");
+      } else {
+        str += ui.WriteButton('Start Buyer',uiPref+"handle('start-buyer');");
+      }
+      if(Clicker.running){
+        str += ui.WriteButton('Stop Clicker',uiPref+"handle('stop-clicker');");
+      } else {
+        str += ui.WriteButton('Start Clicker',uiPref+"handle('start-clicker');");
+      }
+      if(GoldHunter.running){
+        str += ui.WriteButton('Stop GoldHunter',uiPref+"handle('stop-goldHunter');");
+      } else {
+        str += ui.WriteButton('Start GoldHunter',uiPref+"handle('start-goldHunter');");
+      }
+      str += '<label>Start / Stop each module</label>';
+      str += '</div>';
+
+      str += '<div class="listing">'+ui.WriteButton('Remove Cookiesmith',uiPref+"handle('remove');")+'<label>Stop and Remove Cookiesmith (this menu will be closed)</label></div>';
+
+      str += '</div>'; // subsection General
+
+      // Buyer menu
       if(Buyer.running){
         str += '<div class="subsection">'+'<div class="title">Buyer</div>';
-
-        str += '<div class="listing"><b>Estimated average Cps :</b> <div class="price plain">'+Beautify(Buyer.context.estCps)+'</div></div>';
-
+        str += '<div class="listing"><b>Estimated average Cps :</b> <div class="price plain">'+Beautify(Buyer.context.estCps||0)+'</div></div>';
         
         if(Buyer.context){
-
           var target = ui.cache.target = Buyer.context.target || ui.cache.target;
           if(target){
             var price = target.obj.price || target.obj.basePrice;
-            var delay = Math.max( 0, (price-$g.cookies)/Buyer.context.realCps );
+            //var delay = Math.max( 0, (price-$g.cookies)/Buyer.context.realCps );
+            var delay =  Util.realDelay( price-$g.cookies, Buyer.context.baseCps, Buyer.context.baseClickCps);
             var name = target.type==='obj' ? target.obj.name+' ('+(target.obj.amount+1)+')' : target.obj.name ;
             str += '<div class="listing"><b>Next target :</b> '+name+' &nbsp; <div class="price plain">'+Beautify(price)+'</div></div>';
             str += '<div class="listing"><b>Wait :</b> '+Math.round(delay)+'</div>';
@@ -967,11 +1085,20 @@ Interceptor.confirmHook = {};
               str += '<td style="'+style+'">'+Util.beautifyTime(c.price/Buyer.context.estCps)+'</td>';
               str += '</tr>';
             }
-            str += '</tbody><table>'
+            str += '</tbody></table>'
             str += '</div>';
           }
         }
-        str += '</div>'; // subsection
+        str += '</div>'; // subsection Buyer
+      }
+
+      // Clicker
+      if(Clicker.running){
+        str += '<div class="subsection">'+'<div class="title">Clicker</div>';
+        if(Timer.clicksPs!==undefined){
+          str += '<div class="listing"><b>Clicks per second :</b> '+Util.round(Timer.clicksPs,1)+'</div>';
+        }
+        str += '</div>'; // subsection Clicker
       }
       document.getElementById(ui.const.menuId).innerHTML += str;
     }
@@ -1019,6 +1146,7 @@ Interceptor.confirmHook = {};
     if(initialized) return $app;
     console.log('cookiesmith: initialize');
     Util.merge($app.opt,opt);
+    Timer.set();
     Interceptor.set();
     UI.set();
     initialized = true;
@@ -1036,12 +1164,15 @@ Interceptor.confirmHook = {};
     return $app;
   };
   $app.stop = function(){
+    Buyer.stop();
+    GoldHunter.stop();
     Clicker.stop();
   };
   $app.remove = function(){
     $app.stop();
     UI.remove();
     Interceptor.remove();
+    Timer.remove();
     initialized = false;
   };
   return $app;
