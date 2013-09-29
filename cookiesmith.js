@@ -284,16 +284,19 @@ var Cookiesmith = (function($g,$app){
     this.stgs = {
       cpcpsExp: {
         init: function(ctx){},
-        prepare: function(ctx){},
+        prepare: function(ctx){
+          this.denom = 120;
+          if(4000<=ctx.estCps)
+            this.denom = 300;            
+        },
         cost: function(ctx,price,cps,delay){
-          return price/cps * Math.pow(5,delay/60);
+          return price/cps * Math.pow(2,delay/this.denom);
         },
       },
     };
 
     this.param = Util.merge(this.param,{
       costDenom: $app.opt.costDenom || 60,
-      luckyCookiesThreshold: $app.opt.luckyCookiesTime || 90,
       upgradeDefaultThreshold: $app.opt.upgradeDefaultTime || 60,
     });
 
@@ -377,6 +380,7 @@ var Cookiesmith = (function($g,$app){
     var gcClickGain = 777*lucky * ctx.baseClickCps * gcDist.click;
 
     ctx.estGcCps = (gcGain+gcClickGain)/gcInterval;
+    ctx.estGcClickCps = gcClickGain/gcInterval;
     ctx.estCps = ctx.baseCps + ctx.estGcCps;
     ctx.estClickCps = ctx.baseClickCps + gcClickGain/gcInterval;
 
@@ -471,7 +475,7 @@ var Cookiesmith = (function($g,$app){
         var cps = policy.cps(context,ug);
         var cpcps = ug.basePrice / cps;
         var delay = Util.delay(ug.basePrice,context.estCps);
-        if( ug.basePrice/context.estCps < 2 ){
+        if( ug.basePrice/context.estCps < 5 ){
           var cost = -Infinity;
         } else {
           var cost = context.stg.cost(context,ug.basePrice,cps,delay);
@@ -548,9 +552,12 @@ var Cookiesmith = (function($g,$app){
         return ctx.estCps * ($g.milkProgress*rate);
       });
     }
-    var LuckyTwice = delayPolicy(function(ctx,ug){
-      return ctx.param.luckyCookiesThreshold;
+    var LuckyTwiceFreq = cpsPolicy(function(ctx,ug){
+      return ctx.estGcCps;
     });
+    var LuckyTwiceLast = cpsPolicy(function(ctx,ug){
+      return ctx.estGcCps-ctx.estGcClickCps;
+    })
     var Default = delayPolicy(function(ctx,ug){
       return ctx.param.upgradeDefaultThreshold;
     });
@@ -645,9 +652,9 @@ var Cookiesmith = (function($g,$app){
       'Big bang bake': twice('Antimatter condenser'),
 
       // Golden Cookies
-      'Lucky day': LuckyTwice,
-      'Serendipity': LuckyTwice,
-      'Get lucky': LuckyTwice,
+      'Lucky day': LuckyTwiceFreq,
+      'Serendipity': LuckyTwiceFreq,
+      'Get lucky': LuckyTwiceLast,
 
       // Kittens
       'Kitten helpers': kitten(0.05),
@@ -750,8 +757,9 @@ var Cookiesmith = (function($g,$app){
     function show(c){
       console.debug(
         c.name,
-        'cost:'+Util.round(c.cost),
-        'cpsGain:'+Util.round(c.cps),
+        'cost:'+Beautify(c.cost),
+        'cpsGain:'+Beautify(c.cps),
+        'cpcps:'+Beautify(c.price/c.cps),
         'delay:'+Util.round(c.delay)
         );
     }
