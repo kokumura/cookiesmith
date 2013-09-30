@@ -226,7 +226,7 @@ Interceptor.confirmHook = {};
    var Clicker = $app.Clicker = {};
    Clicker.start = function(){
     if(this.running) return;
-    this.idClick = window.setInterval($g.ClickCookie,41);
+    this.idClick = window.setInterval($g.ClickCookie,38);
     this.running = true;
   };
   Clicker.stop = function(){
@@ -260,19 +260,19 @@ Interceptor.confirmHook = {};
     var interval = stat.time-last.time;
 
     if( stat.T<=last.T || stat.clicks<=last.clicks ){
-      this.last = stat;
+      self.last = stat;
       return;
     }
 
     var clicksPs = (stat.clicks-last.clicks)/interval*1000;
-    clicksPs = Util.smooth( last.clicksPs, clicksPs, 0.5, 0.1 );
-    self.clicksPs = last.clicksPs = clicksPs;
+    clicksPs = Util.smooth( last.clicksPs, clicksPs, 0.8, 0.3 );
+    self.clicksPs = stat.clicksPs = clicksPs;
 
     var fps = (stat.T-last.T)/interval*1000;
     fps = Util.smooth( last.fps, fps, 0.5, 0.1 );
-    self.fps = last.fps = fps;
+    self.fps = stat.fps = fps;
 
-    this.last = stat;
+    self.last = stat;
   };
   Timer.remove = function(){
     if(!this.running) return;
@@ -400,6 +400,19 @@ Interceptor.confirmHook = {};
           return price/cps * Math.pow(2,delay/this.denom);
         },
       },
+      cpcpsLinear: {
+        init: function(ctx){},
+        prepare: function(ctx){
+          this.denom = 60;
+        },
+        cost: function(ctx,price,cps,delay){
+          var delay = price/ctx.estCps;
+          var mul = 1;
+          if(delay>10*60) mul*=10;
+          return price/cps * (3+delay*mul/this.denom);
+        },
+      },
+
     };
 
     this.param = Util.merge(this.param,{
@@ -410,7 +423,7 @@ Interceptor.confirmHook = {};
     this.context = Util.merge(this.context,{
       buyer: this,
       param: this.param,
-      stg : $app.opt.strategy || this.stgs.cpcpsExp,
+      stg : $app.opt.strategy || this.stgs.cpcpsLinear,
     });
 
     if(this.context.stg.init) this.context.stg.init(this.context);
