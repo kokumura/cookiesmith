@@ -407,12 +407,9 @@ Interceptor.confirmHook = {};
         },
         cost: function(ctx,price,cps,delay){
           var delay = price/ctx.estCps;
-          var mul = 1;
-          if(delay>10*60) mul*=10;
-          return price/cps * (3+delay*mul/this.denom);
+          return price/cps * (3+delay/this.denom);
         },
       },
-
     };
 
     this.param = Util.merge(this.param,{
@@ -501,9 +498,6 @@ Interceptor.confirmHook = {};
     ctx.estGcClickCps = gcClickGain/gcInterval;
     ctx.estCps = ctx.baseCps + ctx.estGcCps;
     ctx.estClickCps = ctx.baseClickCps + gcClickGain/gcInterval;
-
-    //console.debug('estCps: '+ctx.estCps);
-    //console.debug('estGcCps: '+ctx.estGcCps);
   };
 
   SimpleBuyer.prototype.choose = function(){
@@ -522,7 +516,12 @@ Interceptor.confirmHook = {};
       if(this.context.stg.prepare) this.context.stg.prepare(this.context);
       this.calcScoresForUpgrade(context);
       this.calcScoresForObjects(context);
-      context.target = Util.maxBy( context.scores, function(s){return s.s} );
+
+      if(this.context.stg.select){
+        context.target = this.contxt.stg.select(this.context);
+      }else{
+        context.target = Util.maxBy( context.scores, function(s){return s.s} );
+      }
     }
 
     context.status = this.status;
@@ -577,7 +576,7 @@ Interceptor.confirmHook = {};
       var delay = Util.delay(obj.price,this.context.estCps);
       var cost = context.stg.cost(context,obj.price,obj.storedCps,delay);
       if(cost!==undefined)
-        scores.push( { type:'obj', s: -cost, obj: obj } );
+        scores.push( { type:'obj', s: -cost, obj: obj, } );
     }
     return context;
   };
@@ -599,7 +598,7 @@ Interceptor.confirmHook = {};
         } else {
           var cost = context.stg.cost(context,ug.basePrice,cps,delay);
         }
-        scores.push({ type:'ug', s: -cost , obj: ug, });
+        scores.push({type:'ug', s: -cost , obj: ug,});
         break;
 
         case 'delay':
