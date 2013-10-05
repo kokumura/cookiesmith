@@ -9,7 +9,7 @@ var Cookiesmith = (function($g,$app){
   var $u = $g.UpgradesById;
   var $U = $g.Upgrades;
 
-  $app.opt = { popup:true, clickPs:20, clicker:true, goldHunter:true, buyer:true, };
+  $app.opt = { popup:true, clickPs:20, clicker:true, goldHunter:true, buyer:true, debug:false, };
 
   /*
    * Utility
@@ -95,6 +95,9 @@ Util.log = function(message){
   var formatDate = Util.formatDate(date);
   console.log('['+formatDate+' '+gameTime+'] '+message);
 };
+Util.debug = function(){
+  if($app.opt.debug) console.debug.apply(console,arguments);
+};
 Util.popup = function(message){
   if($app.opt.popup)
     $g.Popup('[Csmith] '+message);
@@ -175,6 +178,9 @@ Util.smooth = function(last,current,rate,th){
   if(th===undefined) th=1.0-rate;
   if( last===undefined || Math.abs(last-current)>last*th ) return current;
   return last*rate + current*(1.0-rate);
+};
+Util.unBeautify = function(str){
+  return parseFloat(str.replace(/,/g,''));
 };
 
 /*
@@ -451,6 +457,7 @@ Interceptor.confirmHook = {};
       Util.popup('bought '+ug.name );
 
     }
+    this.nextTime += this.interval/10;
     this.action = this.choose;
   };
 
@@ -614,11 +621,7 @@ Interceptor.confirmHook = {};
     return context;
   };
   SimpleBuyer.prototype.getPolicyForUpgrade = function(name){
-    var policy = this.ugPolicyTable[name];
-    if(policy===undefined)
-      return this.ugPolicyTable.Default;
-    else
-      return policy;
+    return this.ugPolicyTable[name] || this.ugPolicyTable.Guess(name);
   };
   SimpleBuyer.prototype.ugPolicyTable = (function(){
     function gainGlobalCpsMult(rate){
@@ -686,156 +689,83 @@ Interceptor.confirmHook = {};
     function delayPolicy(f){
       return { p:'delay', delay:f };
     }
+
+    var cacheGuessed = {};
+    var plurals = {};
+    for(var i=0;i<$o.length;i++)
+      plurals[$o[i].plural] = $o[i];
+    function Guess(name){
+      if(cacheGuessed[name]!==undefined) return cacheGuessed[name];
+      var cache = cacheGuessed;
+      var ug = $U[name];
+      if(ug===undefined) return;
+      var desc = ug.desc.toLowerCase().replace(/<\/?[a-z]+>/g,'').replace(/\s+/,' ');
+      var md;
+      if(md=desc.match(/^the mouse and cursors gain (another )?\+([\d,\.]+) cookies/)){
+        Util.debug('guessed '+name+' -> cookies gain +'+md[2]);
+        return cache[name] = gainMouseAndCursorByNonCursor(Util.unBeautify(md[2]));
+      }
+      if(md=desc.match(/^the mouse and cursors are twice as efficient/)){
+        Util.debug('guessed '+name+' -> twice mouse and cursors');
+        return cache[name] = twiceMouseAndCursor();
+      }
+      if(md=desc.match(/^clicking gains \+([\d]+)% of your cps/)){
+          Util.debug('guessed '+name+' -> click gain +'+md[1]+'%');
+          return cache[name]=gainClickByCps(Util.unBeautify(md[1])*0.01);
+      }
+      if(md=desc.match(/^([a-z ]+) are twice as efficient/)){
+        var obj = plurals[md[1]];
+        if(obj!==undefined) { 
+          Util.debug('guessed '+name+' -> efficient twice : '+obj.name);
+          return cache[name]=twice(obj.name);
+        }
+      }
+      if(md=desc.match(/^([a-z ]+) gain \+([\d,\.]+) base cps/)){
+        var obj = plurals[md[1]];
+        if(obj!==undefined) {
+          Util.debug('guessed '+name+' -> base cps gain : '+obj.name+' +'+md[2]);
+          return cache[name]=gainBase(obj.name,Util.unBeautify(md[2]));
+        }
+      }
+      if(md=desc.match(/^cookie production multiplier \+(\d+)%/)){
+        Util.debug('guessed '+name+' -> cookie production +'+md[1]+'%');
+        return cache[name]=gainGlobalCpsMult(parseInt(md[1])*0.01);
+      }
+      if(md=desc.match(/^golden cookies appear twice as often and stay twice as long/)){
+        Util.debug('guessed '+name+' -> golden cookies frequency twice');
+        return cache[name]=LuckyTwiceFreq;
+      }
+      if(md=desc.match(/^golden cookie effects last twice as long/)){
+        Util.debug('guessed '+name+' -> golden cookies effects twice');
+        return cache[name]=LuckyTwiceLast;
+      }
+      Util.debug('guessed '+name+' -> unknown');
+      return cache[name]=Default;
+    };
+
+
     var Ignore = { p:'ignore' };
     return {
       // used when no policies matched
-      Default: Default,
-
+      Guess: Guess,
       // Cursor
       'Reinforced index finger': gainMouseAndCursorBase(1,0.1),
-      'Carpal tunnel prevention cream': twiceMouseAndCursor(),
-      'Ambidextrous': twiceMouseAndCursor(),
-      'Thousand fingers': gainMouseAndCursorByNonCursor(0.1),
-      'Million fingers': gainMouseAndCursorByNonCursor(0.5),
-      'Billion fingers': gainMouseAndCursorByNonCursor(2),
-      'Trillion fingers': gainMouseAndCursorByNonCursor(10),
-      'Quadrillion fingers': gainMouseAndCursorByNonCursor(20),
-      'Quintillion fingers': gainMouseAndCursorByNonCursor(100),
-
-      // Mouse
-      'Plastic mouse': gainClickByCps(0.01),
-      'Iron mouse': gainClickByCps(0.01),
-      'Titanium mouse': gainClickByCps(0.01),
-      'Adamantium mouse': gainClickByCps(0.01),
-
-      // Grandma
-      'Forwards from grandma': gainBase('Grandma',0.3),
-      'Steel-plated rolling pins': twice('Grandma'),
-      'Lubricated dentures': twice('Grandma'),
-      'Prune juice': twice('Grandma'),
-      'Farmer grandmas': twice('Grandma'),
-      'Worker grandmas': twice('Grandma'),
-      'Miner grandmas': twice('Grandma'),
-      'Cosmic grandmas': twice('Grandma'),
-      'Transmuted grandmas': twice('Grandma'),
-      'Altered grandmas': twice('Grandma'),
-      "Grandmas' grandmas": twice('Grandma'),
-      "Antigrandmas": twice('Grandma'),
-
-      // Farm
-      'Cheap hoes': gainBase('Farm',0.5),
-      'Fertilizer': twice('Farm'),
-      'Cookie trees': twice('Farm'),
-      'Genetically-modified cookies': twice('Farm'),
-
-      // Factory
-      'Sturdier conveyor belts': gainBase('Factory',4),
-      'Child labor': twice('Factory'),
-      'Sweatshop': twice('Factory'),
-      'Radium reactors': twice('Factory'),
-
-      // Mine
-      'Sugar gas': gainBase('Mine',10),
-      'Megadrill': twice('Mine'),
-      'Ultradrill': twice('Mine'),
-      'Ultimadrill': twice('Mine'),
-
-      // Shipment
-      'Vanilla nebulae': gainBase('Shipment',30),
-      'Wormholes': twice('Shipment'),
-      'Frequent flyer': twice('Shipment'),
-      'Warp drive': twice('Shipment'),
-
-      // Alchemy lab
-      'Antimony': gainBase('Alchemy lab',100),
-      'Essence of dough': twice('Alchemy lab'),
-      'True chocolate': twice('Alchemy lab'),
-      'Ambrosia': twice('Alchemy lab'),
-
-      // Portal
-      'Ancient tablet': gainBase('Portal',1666),
-      'Insane oatling workers': twice('Portal'),
-      'Soul bond': twice('Portal'),
-      'Sanity dance': twice('Portal'),
-
-      // Time machine
-      'Flux capacitors': gainBase('Time machine',9874),
-      'Time paradox resolver': twice('Time machine'),
-      'Quantum conundrum': twice('Time machine'),
-      'Causality enforcer': twice('Time machine'),
-
-      // Antimatter condenser
-      'Sugar bosons': gainBase('Antimatter condenser',99999),
-      'String theory': twice('Antimatter condenser'),
-      'Large macaron collider': twice('Antimatter condenser'),
-      'Big bang bake': twice('Antimatter condenser'),
-
-      // Golden Cookies
-      'Lucky day': LuckyTwiceFreq,
-      'Serendipity': LuckyTwiceFreq,
-      'Get lucky': LuckyTwiceLast,
-
       // Kittens
       'Kitten helpers': kitten(0.05),
       'Kitten workers': kitten(0.1),
       'Kitten engineers': kitten(0.2),
       'Kitten overseers': kitten(0.3),
-
-      // Cookies
-      'Oatmeal raisin cookies': gainGlobalCpsMult(0.05),
-      'Peanut butter cookies': gainGlobalCpsMult(0.05),
-      'Plain cookies': gainGlobalCpsMult(0.05),
-      'Coconut cookies': gainGlobalCpsMult(0.05),
-      'White chocolate cookies': gainGlobalCpsMult(0.05),
-      'Macadamia nut cookies': gainGlobalCpsMult(0.05),
-      'Sugar cookies': gainGlobalCpsMult(0.05),
-
-      'Double-chip cookies': gainGlobalCpsMult(0.1),
-      'White chocolate macadamia nut cookies': gainGlobalCpsMult(0.1),
-      'All-chocolate cookies': gainGlobalCpsMult(0.1),
-
-      'Dark chocolate-coated cookies': gainGlobalCpsMult(0.15),
-      'White chocolate-coated cookies': gainGlobalCpsMult(0.15),
-      'Eclipse cookies': gainGlobalCpsMult(0.15),
-      'Zebra cookies': gainGlobalCpsMult(0.15),
-      'Snickerdoodles': gainGlobalCpsMult(0.15),
-      'Stroopwafels': gainGlobalCpsMult(0.15),
-      'Macaroons': gainGlobalCpsMult(0.15),
-      'Empire biscuits': gainGlobalCpsMult(0.15),
-      'British tea biscuits': gainGlobalCpsMult(0.15),
-      'Chocolate british tea biscuits': gainGlobalCpsMult(0.15),
-      'Round british tea biscuits': gainGlobalCpsMult(0.15),
-      'Round chocolate british tea biscuits': gainGlobalCpsMult(0.15),
-      'Round british tea biscuits with heart motif': gainGlobalCpsMult(0.15),
-      'Round chocolate british tea biscuits with heart motif': gainGlobalCpsMult(0.15),
-
-      'Madeleines': gainGlobalCpsMult(0.2),
-      'Palmiers': gainGlobalCpsMult(0.2),
-      'Palets': gainGlobalCpsMult(0.2),
-      'Sabl&eacute;s': gainGlobalCpsMult(0.2),
-
       // Research
       'Bingo center/Research facility': gainRate('Grandma',4),
-      'Specialized chocolate chips': gainGlobalCpsMult(0.01),
-      'Designer cocoa beans': gainGlobalCpsMult(0.02),
-      'Ritual rolling pins': twice('Grandma'),
-      'Underworld ovens': gainGlobalCpsMult(0.03),
-
-      // Research(after One mind)
-      'Exotic nuts': gainGlobalCpsMult(0.04),
-      'Arcane sugar': gainGlobalCpsMult(0.05),
       'Sacrificial rolling pins': Ignore,
-
       // door for wrath
       'One mind': Ignore,
       'Communal brainsweep': Ignore,
       'Elder Pact': Ignore,
-
       // Repeatable
       'Elder Pledge': Ignore,
       'Elder Covenant': Ignore,
       'Revoke Elder Covenant': Ignore,
-
       // "Debug purpose only"
       'Ultrascience': Ignore,
       'Gold hoard': Ignore,
