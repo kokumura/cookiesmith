@@ -47,141 +47,141 @@ var Cookiesmith = (function($g,$app){
   };
   Util.map = function(objs,f){
     var ret = new Array(objs.length);
-    for(var i=0;i<objs.length;i++){
+    for(var i=0;i<objs.length;i++)
       ret[i] = f(objs[i]);
-    }
     return ret;
   };
   Util.forEach = function(objs,f){
-    for(var i=0;i<objs.length;i++) f(objs[i]);
+    for(var i=0;i<objs.length;i++)
+      f(objs[i]);
   };
-Util.median = function(values){
-  var list = values.sort();
-  if(list.length%2===0){
-    return (list[list.length/2-1]+list[list.length/2])/2;
-  } else {
-    return list[Math.floor(list.length)];
-  }
-}
+  Util.median = function(values){
+    var list = values.sort();
+    if(list.length%2===0){
+      return (list[list.length/2-1]+list[list.length/2])/2;
+    } else {
+      return list[Math.floor(list.length)];
+    }
+  };
 
-Util.gameTime = function(date){
-  return (date||new Date()).getTime()-$g.startDate;
-};
-Util.pad0 = function(value,digit){
-  if( Math.log(value)/Math.log(10) < digit ){
-    var base = '0';
-    for(var i=2;i<digit;i++) base+='0';
-      return (base+value).slice(-digit);
-  } else {
-    return Math.round(value).toString();
+  Util.gameTime = function(date){
+    return (date||new Date()).getTime()-$g.startDate;
+  };
+  Util.pad0 = function(value,digit){
+    if( Math.log(value)/Math.log(10) < digit ){
+      var base = '0';
+      for(var i=2;i<digit;i++) base+='0';
+        return (base+value).slice(-digit);
+    } else {
+      return Math.round(value).toString();
+    }
+  };
+  Util.round = function(value,digit){
+    if(digit===undefined) digit = 1;
+    return (Math.round(value*Math.pow(10,digit))/Math.pow(10,digit));
   }
-};
-Util.round = function(value,digit){
-  if(digit===undefined) digit = 1;
-  return (Math.round(value*Math.pow(10,digit))/Math.pow(10,digit));
-}
-Util.formatDate = function(date){
-  var year = date.getYear()+1900;
-  var day = Util.pad0(date.getDate(),2);
-  var month = Util.pad0(date.getMonth()+1,2);
-  var hour = Util.pad0(date.getHours(),2);
-  var minute = Util.pad0(date.getMinutes(),2);
-  var second = Util.pad0(date.getSeconds(),2);
-  return year+'/'+month+'/'+day+' '+hour+':'+minute+':'+second;
-};
-Util.log = function(message){
-  var date = new Date();
-  var gameTime = Util.pad0(Math.round(Util.gameTime(date)/1000),6);
-  var formatDate = Util.formatDate(date);
-  console.log('['+formatDate+' '+gameTime+'] '+message);
-};
-Util.debug = function(){
-  if($app.opt.debug) console.debug.apply(console,arguments);
-};
-Util.popup = function(message){
-  if($app.opt.popup)
-    $g.Popup('[Csmith] '+message);
-};
-Util.ordNum = function(num){
-  switch(num){
-    case 1: return 'first';
-    case 2: return 'second';
-    case 3: return 'third';
-    default:
-    switch(num%100){
-      case 11: 
-      case 12: 
-      case 13: return num+'th';
+  Util.formatDate = function(date){
+    var year = date.getYear()+1900;
+    var day = Util.pad0(date.getDate(),2);
+    var month = Util.pad0(date.getMonth()+1,2);
+    var hour = Util.pad0(date.getHours(),2);
+    var minute = Util.pad0(date.getMinutes(),2);
+    var second = Util.pad0(date.getSeconds(),2);
+    return year+'/'+month+'/'+day+' '+hour+':'+minute+':'+second;
+  };
+  Util.log = function(message){
+    var date = new Date();
+    var gameTime = Util.pad0(Math.round(Util.gameTime(date)/1000),6);
+    var formatDate = Util.formatDate(date);
+    console.log('['+formatDate+' '+gameTime+'] '+message);
+  };
+  Util.debug = function(){
+    if($app.opt.debug) console.debug.apply(console,arguments);
+  };
+  Util.popup = function(message){
+    if($app.opt.popup)
+      $g.Popup('[Csmith] '+message);
+  };
+  Util.ordNum = function(num){
+    switch(num){
+      case 1: return 'first';
+      case 2: return 'second';
+      case 3: return 'third';
       default:
-      switch(num%10){
-        case 1: return num+'st';
-        case 2: return num+'nd';
-        case 3: return num+'rd';
-        default: return num+'th';
+      switch(num%100){
+        case 11: 
+        case 12: 
+        case 13: return num+'th';
+        default:
+        switch(num%10){
+          case 1: return num+'st';
+          case 2: return num+'nd';
+          case 3: return num+'rd';
+          default: return num+'th';
+        }
       }
     }
-  }
-};
-Util.delay = function(price,cps){
-  return price>0 ? price/cps : 0;
-};
-Util.realDelay = function(price,cps,clickCps){
-  if(price<=0) return 0;
-  var delay = 0;
-  if($g.frenzy>0||$g.clickFrenzy>0){
-    var frenzyTime,frenzyCps,total;
-    if($g.frenzy>0){
-      frenzyTime = $g.frenzy/Timer.fps;
-      frenzyCps = cps*$g.frenzyPower;
-      total = frenzyCps*frenzyTime;
-    } else if($g.clickFrenzy>0){
-      frenzyTime = $g.clickFrenzy/Timer.fps;
-      frenzyCps = (cps-clickCps)+clickCps*777;
-      total = frenzyCps*frenzyTime;
+  };
+  Util.delay = function(price,cps){
+    return price>0 ? price/cps : 0;
+  };
+  Util.realDelay = function(price,cps,clickCps){
+    if(price<=0) return 0;
+    var delay = 0;
+    if($g.frenzy>0||$g.clickFrenzy>0){
+      var frenzyTime,frenzyCps,total;
+      if($g.frenzy>0){
+        frenzyTime = $g.frenzy/Timer.fps;
+        frenzyCps = cps*$g.frenzyPower;
+        total = frenzyCps*frenzyTime;
+      } else if($g.clickFrenzy>0){
+        frenzyTime = $g.clickFrenzy/Timer.fps;
+        frenzyCps = (cps-clickCps)+clickCps*777;
+        total = frenzyCps*frenzyTime;
+      }
+      if(price > total){
+        delay += frenzyTime;
+        price -= total;
+      }else{
+        delay = price/frenzyCps;
+        price = 0;
+      }
     }
-    if(price > total){
-      delay += frenzyTime;
-      price -= total;
-    }else{
-      delay = price/frenzyCps;
-      price = 0;
+    return delay+price/cps;
+  };
+  Util.merge = function(){
+    var base = arguments[0];
+    for(var i=1; i<arguments.length; i++){
+      for(var k in arguments[i]){
+        base[k] = arguments[i][k];
+      }
     }
-  }
-  return delay+price/cps;
-};
-Util.merge = function(){
-  var base = arguments[0];
-  for(var i=1; i<arguments.length; i++){
-    for(var k in arguments[i]){
-      base[k] = arguments[i][k];
+    return base;
+  };
+  Util.beautifyTime = function(sec){
+    var d = Math.floor(sec/86400);
+    var h = Math.floor((sec%86400)/3600);
+    var m = Math.floor((sec%3600)/60);
+    var s = Math.floor(sec%60);
+    var str = '';
+    if(d!==0) str+=d+'d ';
+    if(h!==0||str!==''){
+      if(str!=='') str+=Util.pad0(h,2);
+      else str+=h;
     }
-  }
-  return base;
-};
-Util.beautifyTime = function(sec){
-  var d = Math.floor(sec/86400);
-  var h = Math.floor((sec%86400)/3600);
-  var m = Math.floor((sec%3600)/60);
-  var s = Math.floor(sec%60);
-  var str = '';
-  if(d!==0) str+=d+'d ';
-  if(h!==0||str!==''){
-    if(str!=='') str+=Util.pad0(h,2);
-    else str+=h;
-  }
-  if(str!=='') str+=':'+Util.pad0(m,2)
-    else str+=m;
-  str += ':'+Util.pad0(s,2);
-  return str;
-};
-Util.smooth = function(last,current,rate,th){
-  if(th===undefined) th=1.0-rate;
-  if( last===undefined || Math.abs(last-current)>last*th ) return current;
-  return last*rate + current*(1.0-rate);
-};
-Util.unBeautify = function(str){
-  return parseFloat(str.replace(/,/g,''));
-};
+    if(str!=='') str+=':'+Util.pad0(m,2)
+      else str+=m;
+    str += ':'+Util.pad0(s,2);
+    return str;
+  };
+  Util.smooth = function(last,current,rate,th){
+    if(th===undefined) th=1.0-rate;
+    if( last===undefined || Math.abs(last-current)>last*th ) return current;
+    return last*rate + current*(1.0-rate);
+  };
+  Util.unBeautify = function(str){
+    return parseFloat(str.replace(/,/g,''));
+  };
 
 /*
  * Interceptor
@@ -699,7 +699,7 @@ Interceptor.confirmHook = {};
       var cache = cacheGuessed;
       var ug = $U[name];
       if(ug===undefined) return;
-      var desc = ug.desc.toLowerCase().replace(/<\/?[a-z]+>/g,'').replace(/\s+/,' ');
+      var desc = ug.desc.toLowerCase().replace(/<\/?[a-z]+>/g,' ').replace(/\s+/g,' ');
       var md;
       if(md=desc.match(/^the mouse and cursors gain (another )?\+([\d,\.]+) cookies/)){
         Util.debug('guessed '+name+' -> cookies gain +'+md[2]);
@@ -710,8 +710,8 @@ Interceptor.confirmHook = {};
         return cache[name] = twiceMouseAndCursor();
       }
       if(md=desc.match(/^clicking gains \+([\d]+)% of your cps/)){
-          Util.debug('guessed '+name+' -> click gain +'+md[1]+'%');
-          return cache[name]=gainClickByCps(Util.unBeautify(md[1])*0.01);
+        Util.debug('guessed '+name+' -> click gain +'+md[1]+'%');
+        return cache[name]=gainClickByCps(Util.unBeautify(md[1])*0.01);
       }
       if(md=desc.match(/^([a-z ]+) are twice as efficient/)){
         var obj = plurals[md[1]];
