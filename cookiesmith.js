@@ -12,10 +12,10 @@ var Cookiesmith = (function($g,$app){
   $app.opt = { popup:true, clickPs:20, clicker:true, goldHunter:true, buyer:true, debug:false, };
 
   /*
-   * Utility
-   */
-   var Util = $app.Util = {};
-   Util.maxBy = function(objs,f){
+  * Utility
+  */
+  var Util = $app.Util = {};
+  Util.maxBy = function(objs,f){
     var maxobj,maxvalue;
     for(var i=0;i<objs.length;i++){
       var val = f===undefined ? objs[i] : f(objs[i]);
@@ -184,12 +184,12 @@ var Cookiesmith = (function($g,$app){
   };
 
 /*
- * Interceptor
- */
- var Interceptor = $app.Interceptor = {};
- Interceptor.orig = {};
- Interceptor.hook = {};
- Interceptor.hook.Loop = function(){
+* Interceptor
+*/
+var Interceptor = $app.Interceptor = {};
+Interceptor.orig = {};
+Interceptor.hook = {};
+Interceptor.hook.Loop = function(){
   Interceptor.orig.Loop.apply($g);
   window.setTimeout(function(){
     for(var k in Interceptor.loopHook){
@@ -227,12 +227,13 @@ Interceptor.loopHook = {};
 Interceptor.confirmHook = {};
 
   /*
-   * Clicker
-   */
-   var Clicker = $app.Clicker = {};
-   Clicker.start = function(){
-    if(this.running) return;
-    this.idClick = window.setInterval($g.ClickCookie,38);
+  * Clicker
+  */
+  var Clicker = $app.Clicker = {};
+  Clicker.start = function(interval){
+    if(this.running) this.stop();
+    if(interval===undefined) interval = 38;
+    this.idClick = window.setInterval($g.ClickCookie,interval);
     this.running = true;
   };
   Clicker.stop = function(){
@@ -242,10 +243,10 @@ Interceptor.confirmHook = {};
   };
 
   /*
-   * Timer
-   */
-   var Timer = $app.Timer = {};
-   Timer.set = function(){
+  * Timer
+  */
+  var Timer = $app.Timer = {};
+  Timer.set = function(){
     if(this.running) return;
     this.last = this.getStatus();
     this.idTimer = window.setInterval(this.Measure,1000);
@@ -289,10 +290,10 @@ Interceptor.confirmHook = {};
   };
 
   /*
-   * GoldHunter
-   */
-   var GoldHunter = $app.GoldHunter = {};
-   GoldHunter.hunt = function(){
+  * GoldHunter
+  */
+  var GoldHunter = $app.GoldHunter = {};
+  GoldHunter.hunt = function(){
     var self = GoldHunter;
     if(!self.hunting && $g.goldenCookie.delay==0 && $g.goldenCookie.toDie!==1 && $g.goldenCookie.wrath!==1 ){
       self.hunting = true;
@@ -316,10 +317,10 @@ Interceptor.confirmHook = {};
   };
 
   /*
-   * Basic Buyer
-   */
-   var BasicBuyer = $app.BasicBuyer = function(){};
-   BasicBuyer.prototype.init = function(){
+  * Basic Buyer
+  */
+  var BasicBuyer = $app.BasicBuyer = function(){};
+  BasicBuyer.prototype.init = function(){
     this.interval = 1000;
     this.nextTime = 0;
     this.interceptorKey = 'basicBuyer';
@@ -385,12 +386,12 @@ Interceptor.confirmHook = {};
   };
 
   /*
-   * Simple Buyer extends Basic Buyer
-   */
-   var SimpleBuyer = $app.SimpleBuyer = function(){};
-   SimpleBuyer.prototype = Object.create(BasicBuyer.prototype);
-   SimpleBuyer.prototype.constructor = SimpleBuyer();
-   SimpleBuyer.prototype.init = function(){
+  * Simple Buyer extends Basic Buyer
+  */
+  var SimpleBuyer = $app.SimpleBuyer = function(){};
+  SimpleBuyer.prototype = Object.create(BasicBuyer.prototype);
+  SimpleBuyer.prototype.constructor = SimpleBuyer();
+  SimpleBuyer.prototype.init = function(){
     BasicBuyer.prototype.init.apply(this); // super()
     this.interval = 1000;
     this.stgs = {
@@ -416,6 +417,74 @@ Interceptor.confirmHook = {};
           return price/cps * (3+delay/this.denom);
         },
       },
+      cpcpsMultipass: {
+        init: function(ctx){},
+        prepare: function(ctx){},
+        cost: function(ctx,price,cps,delay){
+          var delay = price/ctx.estCps;
+          return price/cps * (3+delay/60);
+        },
+        getPrice: function(obj){
+          return obj.price||obj.basePrice||0;
+        },
+        select: function(ctx){
+          for(var i=0;i<ctx.scores.length;i++){
+            ctx.scores[i].costs =  ctx.scores[i].costs || ctx.buyer.costFor(ctx.scores[i].obj.name,ctx);
+          }
+
+          var delayLimit = 60*60;
+          var self = this;
+          var cps = ctx.baseCps;
+          var mcps = ctx.baseClickCps;
+          while(true){
+            var target = Util.maxBy(ctx.scores,function(s){var delay=Util.realDelay(self.getPrice(s.obj),cps,mcps);return delay>delayLimit ? -Infinity : s.s });
+            if( Util.realDelay(this.getPrice(target.obj),cps,mcps) <= delayLimit){
+              break;
+            }
+            delayLimit *= 1.5;
+          }
+
+          var c = target.costs = target.costs || ctx.buyer.costFor(target.obj.name,ctx);
+          Util.debug('first target: '+target.obj.name+' / '+c.cps);
+          return this.pass(ctx,target,0)
+        },
+        pass: function(ctx,target,level){
+          if(level>10) return target;
+          var maxDelay = this.getPrice(target.obj)/ctx.estCps;
+          var c = target.costs = target.costs || ctx.buyer.costFor(target.obj.name,ctx);
+          if(!c.cps>0) return target;
+          var selected = [ { cps:c.cps, target:target }, ];
+          for(var i=0;i<ctx.scores.length;i++){
+            var sc = ctx.scores[i];
+            var price = this.getPrice(sc.obj);
+            var delay = price/ctx.estCps;
+            if(delay<maxDelay){
+              var c = sc.costs = sc.costs || ctx.buyer.costFor(sc.obj.name,ctx);
+              var dcps = c.cps;
+              if(dcps===0) continue;
+              var t = 0;
+              var cps = ctx.baseCps;
+              var n = 0;
+              while(t<maxDelay){
+                var delay = price/cps;
+                var delay2 = Math.min(t+delay,maxDelay)-t;
+                cps += dcps * (delay2/delay);
+                t+=delay;
+                n+= delay/delay2;
+              }
+              if(level>0)
+                Util.debug(Util.ordNum(level+2)+' pass: '+sc.obj.name+' / '+(cps-ctx.baseCps)+' ['+Util.round(n,2)+']');
+              selected.push({cps:cps-ctx.baseCps,target:sc});
+            }
+          }
+          var select = Util.maxBy(selected,function(sel){return sel.cps});
+          var target2 = select.target;
+          if(target2!==target)
+            Util.debug(Util.ordNum(level+2)+' target: '+target2.obj.name+' / '+select.cps);
+          if(target2===target) return target2;
+          return this.pass(ctx,target2,level+1);
+        }
+      },
     };
 
     this.param = Util.merge(this.param,{
@@ -426,7 +495,7 @@ Interceptor.confirmHook = {};
     this.context = Util.merge(this.context,{
       buyer: this,
       param: this.param,
-      stg : $app.opt.strategy || this.stgs.cpcpsLinear,
+      stg : $app.opt.strategy || this.stgs.cpcpsMultipass,
     });
 
     if(this.context.stg.init) this.context.stg.init(this.context);
@@ -525,7 +594,7 @@ Interceptor.confirmHook = {};
       this.calcScoresForObjects(context);
 
       if(this.context.stg.select){
-        context.target = this.contxt.stg.select(this.context);
+        context.target = context.stg.select(context);
       }else{
         context.target = Util.maxBy( context.scores, function(s){return s.s} );
       }
@@ -780,13 +849,14 @@ Interceptor.confirmHook = {};
     for (var i=0;i<$u.length;i++){
       stat += $u[i].unlocked<<1 + $u[i].bought;
     }
+    stat += Game.goldenClicks;
     return stat;
   }
 
   // for debugging ...
-  SimpleBuyer.prototype.costFor = function(name){
+  SimpleBuyer.prototype.costFor = function(name,_ctx){
     var obj = $O[name] || $U[name];
-    var ctx = this.context;
+    var ctx = _ctx || this.context;
     if(obj.price!==undefined){
       var price = obj.price;
       var cps = obj.storedCps;
@@ -1048,10 +1118,10 @@ Interceptor.confirmHook = {};
 
 
   /*
-   * Cheater
-   */
-   var Cheater = $app.Cheater = {};
-   Cheater.getCookies = function(number){
+  * Cheater
+  */
+  var Cheater = $app.Cheater = {};
+  Cheater.getCookies = function(number){
     $g.cookiesEarned += number;
     $g.cookies += number;
     Util.log( 'got '+Beautify(number)+' cookies.' );
@@ -1081,10 +1151,10 @@ Interceptor.confirmHook = {};
   }
 
   /*
-   * initializer
-   */
-   var initialized = false;
-   $app.init = function(opt){
+  * initializer
+  */
+  var initialized = false;
+  $app.init = function(opt){
     if(initialized) return $app;
     console.log('cookiesmith: initialize');
     Util.merge($app.opt,opt);
