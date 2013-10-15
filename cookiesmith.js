@@ -295,7 +295,7 @@ Interceptor.confirmHook = {};
   var GoldHunter = $app.GoldHunter = {};
   GoldHunter.hunt = function(){
     var self = GoldHunter;
-    if(!self.hunting && $g.goldenCookie.delay==0 && $g.goldenCookie.toDie!==1 && $g.goldenCookie.wrath!==1 ){
+    if(!self.hunting && $g.goldenCookie.time===0 && $g.goldenCookie.wrath!==1 ){
       self.hunting = true;
       window.setTimeout(function(){
         $g.goldenCookie.click();
