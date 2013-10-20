@@ -55,12 +55,12 @@ var Cookiesmith = (function($g,$app){
     for(var i=0;i<objs.length;i++)
       f(objs[i]);
   };
-  Util.median = function(values){
-    var list = values.sort();
+  Util.median = function(values,f){
+    var list = values.sort(f);
     if(list.length%2===0){
       return (list[list.length/2-1]+list[list.length/2])/2;
     } else {
-      return list[Math.floor(list.length)];
+      return list[Math.floor(list.length/2)];
     }
   };
 
@@ -295,19 +295,18 @@ Interceptor.confirmHook = {};
   var GoldHunter = $app.GoldHunter = {};
   GoldHunter.hunt = function(){
     var self = GoldHunter;
-    if(!self.hunting && $g.goldenCookie.time===0 && $g.goldenCookie.wrath!==1 ){
-      self.hunting = true;
-      window.setTimeout(function(){
-        $g.goldenCookie.click();
-        Util.log('got the '+Util.ordNum($g.goldenClicks)+' Golden Cookie!');
-        Util.popup('got the '+Util.ordNum($g.goldenClicks)+' Golden Cookie!');
-        self.hunting = false;
-      },1000);
+    if(self.sleep>0 && self.sleep-- > 0) return;
+    if( $g.goldenCookie.time===0 && $g.goldenCookie.life<$g.fps*($g.goldenCookie.dur-3) && $g.goldenCookie.wrath!==1 ){
+      self.sleep = 2;
+      $g.goldenCookie.click();
+      Util.log('got the '+Util.ordNum($g.goldenClicks)+' Golden Cookie!');
+      Util.popup('got the '+Util.ordNum($g.goldenClicks)+' Golden Cookie!');
     }
   };
   GoldHunter.start = function(){
     if(this.running) return;
     this.running = true;
+    this.sleep = 0;
     Interceptor.loopHook.gh = this.hunt;
   };
   GoldHunter.stop = function(){
@@ -432,17 +431,15 @@ Interceptor.confirmHook = {};
             ctx.scores[i].costs =  ctx.scores[i].costs || ctx.buyer.costFor(ctx.scores[i].obj.name,ctx);
           }
 
-          var delayLimit = 60*60;
           var self = this;
           var cps = ctx.baseCps;
           var mcps = ctx.baseClickCps;
-          while(true){
-            var target = Util.maxBy(ctx.scores,function(s){var delay=Util.realDelay(self.getPrice(s.obj),cps,mcps);return delay>delayLimit ? -Infinity : s.s });
-            if( Util.realDelay(this.getPrice(target.obj),cps,mcps) <= delayLimit){
-              break;
-            }
-            delayLimit *= 1.5;
-          }
+
+          var delays = Util.map(ctx.scores,function(s){return Util.realDelay(self.getPrice(s.obj),cps,mcps) });
+          var delayMedian = Util.median(delays,function(a,b){return a===b?0:a>b?1:-1;});
+
+          var delayLimit = Math.max(60*60,delayMedian*2);
+          var target = Util.maxBy(ctx.scores,function(s){var delay=Util.realDelay(self.getPrice(s.obj),cps,mcps);return delay>delayLimit ? -Infinity : s.s });
 
           var c = target.costs = target.costs || ctx.buyer.costFor(target.obj.name,ctx);
           Util.debug('first target: '+target.obj.name+' / '+c.cps);
@@ -693,9 +690,29 @@ Interceptor.confirmHook = {};
     return this.ugPolicyTable[name] || this.ugPolicyTable.Guess(name);
   };
   SimpleBuyer.prototype.ugPolicyTable = (function(){
+    function getCookiesMult(){
+      var mult = 1;
+      for(var i in $U){
+        var me = $U[i];
+        if(me.type==='cookie' && $g.Has(me.name)){
+          console.log(i);
+          mult += me.power*0.01;
+        }
+      }
+      return mult;
+    }
+    var cookiesMultUpdateTime = 0;
+    var cookiesMult = 1;
     function gainGlobalCpsMult(rate){
       return cpsPolicy(function(ctx,ug){
-        return (ctx.estCps-ctx.estClickCps)/$g.globalCpsMult*rate;
+        if(cookiesMultUpdateTime < $g.time){
+          cookiesMult = getCookiesMult();
+          cookiesMultUpdateTime = $g.time;
+        }
+        var mult = $g.globalCpsMult;
+        if($g.frenzy>0) mult /= $g.frenzyPower;
+        var kittenMult = mult/cookiesMult;
+        return (ctx.estCps-ctx.estClickCps)/$g.globalCpsMult*rate*kittenMult;
       });
     }
     function gainBase(objName,base){
